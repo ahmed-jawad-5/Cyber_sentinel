@@ -1,11 +1,11 @@
 # tests/test_basic.py
 import time
-from network.network_layer import UDPNetworkLayer
+from network.network_layer import NetworkLayer
 from app.application_layer import make_message, parse_message
 
 def test_send_receive_loopback():
-    server = UDPNetworkLayer(('127.0.0.1', 9999))
-    client = UDPNetworkLayer(('127.0.0.1', 0))  # ephemeral client port
+    server = NetworkLayer(('127.0.0.1', 9999))
+    client = NetworkLayer(('127.0.0.1', 0))  # ephemeral client port
 
     received = []
 

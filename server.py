@@ -2,7 +2,7 @@
 import argparse
 import time
 from config import DEFAULT_HOST, DEFAULT_PORT, SIMULATED_PACKET_LOSS
-from network.network_layer import UDPNetworkLayer
+from network.network_layer import NetworkLayer
 from app.handler import AppHandler
 from utils.logger import get_logger
 
@@ -17,7 +17,7 @@ def main():
     args = parser.parse_args()
 
     bind = (args.host, args.port)
-    net = UDPNetworkLayer(bind_addr=bind, loss_rate=args.loss)
+    net = NetworkLayer(bind_addr=bind, loss_rate=args.loss)
     handler = AppHandler(net)
 
     # network layer will call handler.handle_raw(data, addr) in a new thread per packet
