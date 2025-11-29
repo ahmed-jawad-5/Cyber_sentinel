@@ -8,6 +8,7 @@ logger = get_logger("client")
 
 def start_receiver(net: NetworkLayer):
     def on_receive(data, addr):
+        print(f"[DEBUG] raw from {addr}: {data!r}")
         msg = parse_message(data)
         logger.info(f"Received from {addr}: {msg}")
     net.start_listening(on_receive)
