@@ -28,9 +28,5 @@ class AppHandler:
             logger.info(f"Message from {addr} [seq={seq}]: {text}")
             ack = make_message("ack", {"ack_seq": seq}, seq=seq)
             self.network.send(ack, addr)
-        elif msg_type in ("pong","ack"):
-            logger.info(f"{msg_type} from {addr}: {payload}")
-            self.network.send(ack, addr)
-
         elif msg_type in ("pong", "ack"):
             logger.info(f"{msg_type} from {addr}: {payload}")
