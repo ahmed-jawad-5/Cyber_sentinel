@@ -1,43 +1,59 @@
+# network/network_layer.py
 import socket
 import threading
+import random
 
 class NetworkLayer:
-    def __init__(self, local_ip="0.0.0.0", local_port=5005, buffer_size=4096, on_receive=None):
+    """
+    UDP Network Layer with optional simulated packet loss.
+    """
+
+    def __init__(self, local_ip="0.0.0.0", local_port=5000, buffer_size=4096, loss_rate=0.0):
         self.local_ip = local_ip
         self.local_port = local_port
         self.buffer_size = buffer_size
-        self.on_receive = on_receive
+        self.loss_rate = loss_rate
+
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         self.sock.bind((self.local_ip, self.local_port))
-        self.running = False
 
-    def start_listening(self, callback=None):
-        self.on_receive = callback or self.on_receive
+        self.running = False
+        self.listen_thread = None
+        self.on_receive = None
+
+    def start_listening(self, callback):
+        """Start listening in a background thread."""
+        self.on_receive = callback
         self.running = True
-        threading.Thread(target=self._listen_loop, daemon=True).start()
+        self.listen_thread = threading.Thread(target=self._listen_loop, daemon=True)
+        self.listen_thread.start()
 
     def _listen_loop(self):
         while self.running:
             try:
                 data, addr = self.sock.recvfrom(self.buffer_size)
+                # Simulate packet loss
+                if self.loss_rate > 0 and random.random() < self.loss_rate:
+                    continue
                 if self.on_receive:
                     self.on_receive(data, addr)
             except ConnectionResetError:
+                # Ignore Windows ICMP "Port Unreachable"
                 continue
             except OSError:
                 break
             except Exception as e:
-                print(f"NetworkLayer receive error: {e}")
+                print(f"[NetworkLayer] Receive error: {e}")
 
     def send(self, data_bytes, addr):
-        """data_bytes: bytes, addr: tuple(ip, port)"""
+        """Send bytes to addr (tuple IP, port)."""
         try:
             if not isinstance(data_bytes, bytes):
-                raise TypeError(f"send() expects bytes, got {type(data_bytes)}")
+                raise TypeError(f"NetworkLayer.send() expects bytes, got {type(data_bytes)}")
             self.sock.sendto(data_bytes, addr)
         except Exception as e:
-            print(f"NetworkLayer send error: {e}")
+            print(f"[NetworkLayer] Send error: {e}")
 
     def stop(self):
         self.running = False
