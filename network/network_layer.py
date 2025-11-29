@@ -33,8 +33,10 @@ class NetworkLayer:
         while self.running:
             try:
                 data, addr = self.sock.recvfrom(self.buffer_size)
+                print(f"[DEBUG][NetworkLayer] ({self.local_ip}:{self.local_port}) received {len(data)} bytes from {addr}")
                 # Simulate packet loss
                 if self.loss_rate > 0 and random.random() < self.loss_rate:
+                    print("[DEBUG][NetworkLayer] dropping packet due to simulated loss")
                     continue
                 if self.on_receive:
                     self.on_receive(data, addr)
@@ -51,6 +53,7 @@ class NetworkLayer:
         try:
             if not isinstance(data_bytes, bytes):
                 raise TypeError(f"NetworkLayer.send() expects bytes, got {type(data_bytes)}")
+            print(f"[DEBUG][NetworkLayer] sending {len(data_bytes)} bytes from ({self.local_ip}:{self.local_port}) to {addr}")
             self.sock.sendto(data_bytes, addr)
         except Exception as e:
             print(f"[NetworkLayer] Send error: {e}")

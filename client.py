@@ -33,7 +33,7 @@ def main():
     parser = argparse.ArgumentParser(description="UDP Client")
     parser.add_argument("--server-host", required=True)
     parser.add_argument("--server-port", type=int, required=True)
-    parser.add_argument("--bind-host", default="0.0.0.0")
+    parser.add_argument("--bind-host", default="192.168.223.255")
     parser.add_argument("--bind-port", type=int, default=0)
     args = parser.parse_args()
 
