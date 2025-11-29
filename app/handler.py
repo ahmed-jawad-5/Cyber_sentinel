@@ -23,8 +23,12 @@ class AppHandler:
         if msg_type == "ping":
             resp = make_message("pong", {"received_seq": seq}, seq=seq)
             self.network.send(resp, addr)
+
         elif msg_type == "message":
+            text = payload.get("text")
+            logger.info(f"Message from {addr} [seq={seq}]: {text}")
             ack = make_message("ack", {"ack_seq": seq}, seq=seq)
             self.network.send(ack, addr)
-        elif msg_type in ("pong","ack"):
+
+        elif msg_type in ("pong", "ack"):
             logger.info(f"{msg_type} from {addr}: {payload}")
