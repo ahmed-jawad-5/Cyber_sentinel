@@ -1,63 +1,67 @@
-# client.py
 import argparse
-import threading
 import time
-from config import BUFFER_SIZE
-from network.network_layer import UDPNetworkLayer
+from network.network_layer import NetworkLayer
 from app.application_layer import make_message, parse_message
 from utils.logger import get_logger
 
 logger = get_logger("client")
 
-def start_receiver(network: UDPNetworkLayer):
-    def on_receive(raw, addr):
-        parsed = parse_message(raw)
-        if parsed:
-            logger.info(f"RECV from {addr}: type={parsed.get('msg_type')} seq={parsed.get('seq')} payload={parsed.get('payload')}")
+
+def start_receiver(net: NetworkLayer):
+    """Start background receiver."""
+    def on_receive(data, addr):
+        msg = parse_message(data)
+        if msg:
+            logger.info(f"Received from {addr}: {msg}")
         else:
-            logger.info(f"RECV raw from {addr}: {raw[:100]!r}")
+            logger.warning(f"Received unparseable data from {addr}: {data}")
 
-    network.start_listening(on_receive)
+    net.start_listening(on_receive)
 
-def interactive_loop(network: UDPNetworkLayer, server_addr):
+
+def interactive_sender(net: NetworkLayer, server_addr):
+    """Send messages interactively to the server."""
     seq = 0
     try:
         while True:
-            text = input("Enter message (or /ping or /quit): ").strip()
-            if not text:
-                continue
-            if text == "/quit":
+            text = input("Enter message (/ping or /quit): ").strip()
+
+            if text.lower() == "/quit":
                 break
-            if text == "/ping":
-                pkt = make_message("ping", {}, seq=seq)
+
+            if text.lower() == "/ping":
+                packet = make_message("ping", {}, seq=seq)
             else:
-                pkt = make_message("message", {"text": text}, seq=seq)
-            network.send(server_addr, pkt)
-            logger.debug(f"Sent seq={seq} to {server_addr}")
+                packet = make_message("message", {"text": text}, seq=seq)
+
+            # send bytes to server
+            net.send(packet, server_addr)
             seq += 1
+
     except KeyboardInterrupt:
-        pass
+        print("\n[Client] Exiting...")
+
 
 def main():
-    parser = argparse.ArgumentParser(description="UDP client")
-    parser.add_argument("--server-host", required=True)
-    parser.add_argument("--server-port", type=int, required=True)
-    parser.add_argument("--bind-host", default="0.0.0.0")
-    parser.add_argument("--bind-port", type=int, default=0, help="0 = ephemeral port")
-    parser.add_argument("--loss", type=float, default=0.0, help="simulate send loss locally")
+    parser = argparse.ArgumentParser(description="UDP Client")
+    parser.add_argument("--server-host", required=True, help="Server IP to send packets to")
+    parser.add_argument("--server-port", type=int, required=True, help="Server UDP port")
+    parser.add_argument("--bind-host", default="0.0.0.0", help="Local IP to bind client")
+    parser.add_argument("--bind-port", type=int, default=0, help="Local UDP port (0 = auto)")
     args = parser.parse_args()
 
-    bind = (args.bind_host, args.bind_port)
-    network = UDPNetworkLayer(bind_addr=bind, loss_rate=args.loss)
-    start_receiver(network)
+    # Initialize network layer
+    net = NetworkLayer(local_ip=args.bind_host, local_port=args.bind_port)
+    start_receiver(net)
 
-    server = (args.server_host, args.server_port)
-    logger.info(f"Client bound to {bind}, sending to {server}")
-    interactive_loop(network, server)
+    server_addr = (args.server_host, args.server_port)
+    logger.info(f"Client started. Sending to server at {server_addr}")
 
-    network.stop()
-    logger.info("Client exited")
+    interactive_sender(net, server_addr)
+
+    net.stop()
+    logger.info("Client stopped.")
+
 
 if __name__ == "__main__":
     main()
-#python client.py --server-host 192.168.1.50 --server-port 9000

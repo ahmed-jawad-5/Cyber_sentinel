@@ -1,61 +1,43 @@
 import socket
 import threading
-import random
 
 class NetworkLayer:
-    """
-    UDP Network Layer with optional simulated packet loss.
-    """
-
-    def __init__(self, bind_addr=("0.0.0.0", 5000), buffer_size=1024, loss_rate=0.0):
-        self.ip, self.port = bind_addr
+    def __init__(self, local_ip="0.0.0.0", local_port=5005, buffer_size=4096, on_receive=None):
+        self.local_ip = local_ip
+        self.local_port = local_port
         self.buffer_size = buffer_size
-        self.loss_rate = loss_rate
-
-        self.running = False
+        self.on_receive = on_receive
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.bind((self.ip, self.port))
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        self.sock.bind((self.local_ip, self.local_port))
+        self.running = False
 
-        self.listen_thread = None
-
-    def start_listening(self, callback):
-        """Start listening for UDP packets in a background thread."""
-        self.callback = callback
+    def start_listening(self, callback=None):
+        self.on_receive = callback or self.on_receive
         self.running = True
-        self.listen_thread = threading.Thread(target=self._listen_loop, daemon=True)
-        self.listen_thread.start()
+        threading.Thread(target=self._listen_loop, daemon=True).start()
 
     def _listen_loop(self):
-        """Receive packets in loop."""
         while self.running:
             try:
                 data, addr = self.sock.recvfrom(self.buffer_size)
-
-                # Simulated packet loss
-                if random.random() < self.loss_rate:
-                    # Drop packet silently
-                    continue
-
-                # Dispatch to application layer
-                self.callback(data, addr)
-
+                if self.on_receive:
+                    self.on_receive(data, addr)
             except ConnectionResetError:
-                # Ignore WinError 10054
                 continue
             except OSError:
                 break
             except Exception as e:
-                print(f"[NetworkLayer] Error: {e}")
+                print(f"NetworkLayer receive error: {e}")
 
-    def send(self, data: bytes, dest):
-        """Send UDP packet to (IP, port)."""
+    def send(self, data_bytes, addr):
+        """data_bytes: bytes, addr: tuple(ip, port)"""
         try:
-            self.sock.sendto(data, dest)
-        except ConnectionResetError:
-            # Windows ICMP reset — safe to ignore
-            pass
+            if not isinstance(data_bytes, bytes):
+                raise TypeError(f"send() expects bytes, got {type(data_bytes)}")
+            self.sock.sendto(data_bytes, addr)
         except Exception as e:
-            print(f"[NetworkLayer] Send error: {e}")
+            print(f"NetworkLayer send error: {e}")
 
     def stop(self):
         self.running = False
