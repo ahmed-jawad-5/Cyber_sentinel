@@ -1,41 +1,46 @@
 # capture/flow_sniffer.py
-from scapy.all import sniff, wrpcap
+from scapy.all import sniff
 from capture.packet_parser import parse_packet
 from capture.flow_tracker import FlowTracker
-from config import IFACE, FILTER, PCAP_FILE
+from capture.feature_extractor import extract_features
 from utils.logger import get_logger
+from config.settings import IFACE, BPF_FILTER
 
 logger = get_logger("FlowSniffer")
 
-class FlowSniffer:
-    def __init__(self, iface=IFACE, bpf_filter=FILTER, save_pcap=True):
-        self.iface = iface
-        self.bpf_filter = bpf_filter
-        self.flow_tracker = FlowTracker()
-        self.save_pcap = save_pcap
-        self.captured_packets = []
+class FlowSnifferRunner:
+    def __init__(self, on_feature_ready):
+        """
+        on_feature_ready(features_dict) -> called when a flow is complete and features are extracted.
+        """
+        self.on_feature_ready = on_feature_ready
+        self.tracker = FlowTracker(on_flow_complete=self._on_flow_complete)
 
-    def _process_packet(self, pkt):
-        """Called for every sniffed packet"""
-        pkt_info = parse_packet(pkt)
-        if pkt_info:
-            self.flow_tracker.update_flow(pkt_info)
-            if self.save_pcap:
-                self.captured_packets.append(pkt)
-
-    def start(self):
-        """Start sniffing packets"""
-        logger.info(f"Starting packet sniffing on interface: {self.iface} with filter: {self.bpf_filter}")
+    def _on_flow_complete(self, flow_key, packets):
         try:
-            sniff(iface=self.iface, filter=self.bpf_filter, prn=self._process_packet, store=False)
-        except KeyboardInterrupt:
-            logger.info("Stopping sniffing due to keyboard interrupt")
-            self.stop()
+            features = extract_features(flow_key, packets)
+            if features:
+                # attach basic flow_key info optionally
+                features["_flow_key"] = {
+                    "src": flow_key[0],
+                    "dst": flow_key[1],
+                    "sport": flow_key[2],
+                    "dport": flow_key[3],
+                    "proto": flow_key[4]
+                }
+                # call external callback to send features (client) or store
+                self.on_feature_ready(features)
+        except Exception:
+            logger.exception("Feature extraction error")
+
+    def _process(self, pkt):
+        parsed = parse_packet(pkt)
+        if parsed:
+            self.tracker.update(parsed)
+
+    def start(self, iface=IFACE, bpf_filter=BPF_FILTER):
+        logger.info(f"Starting sniff on iface={iface} filter={bpf_filter}")
+        sniff(iface=iface, filter=bpf_filter, prn=self._process, store=False)
 
     def stop(self):
-        """Stop sniffing and save pcap if needed"""
-        logger.info("Stopping FlowSniffer...")
-        self.flow_tracker.stop()
-        if self.save_pcap and self.captured_packets:
-            wrpcap(PCAP_FILE, self.captured_packets)
-            logger.info(f"Saved captured packets to {PCAP_FILE}")
+        self.tracker.stop()

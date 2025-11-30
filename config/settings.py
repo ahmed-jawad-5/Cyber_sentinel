@@ -1,20 +1,18 @@
 # config/settings.py
 
-# Network interface for sniffing
-IFACE = "eth0"  # change to your active interface, e.g., "en0" on Mac
+# Sniffer network interface used by client (Scapy)
+IFACE = "wlan0"     # change to your actual interface, e.g. "eth0", "en0", or interface index on Windows
 
-# Sniff filter (BPF style)
-FILTER = "ip"
+# BPF filter for sniffing (capture what you want; 'ip' captures all IPv4)
+BPF_FILTER = "ip"
 
-# Flow timeout in seconds (after which a flow is considered complete)
-FLOW_TIMEOUT = 10
+# Flow timeout (seconds) — flow is considered finished after this idle time
+FLOW_TIMEOUT = 10.0
 
-# Output CSV file paths
-CAPTURED_FLOWS_CSV = "output/captured_flows.csv"
-ANOMALIES_CSV = "output/anomalies.csv"
+# TCP server to which the client will send feature JSONs
+# On the client side set SERVER_IP to the server laptop IP (change before running)
+SERVER_IP = "192.168.1.20"
+SERVER_PORT = 9000
 
-# PCAP file for optional raw capture
-PCAP_FILE = "output/packets.pcap"
-
-# Maximum number of packets to store in memory (before writing to CSV)
-MAX_BUFFER_SIZE = 1000
+# Server CSV output (path relative to server script)
+OUTPUT_CSV = "output/captured_flows.csv"
