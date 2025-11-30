@@ -2,12 +2,14 @@
 import logging
 import sys
 
-def get_logger(name=__name__, level=logging.INFO):
+def get_logger(name: str):
     logger = logging.getLogger(name)
-    if not logger.handlers:
+    if not logger.hasHandlers():
+        logger.setLevel(logging.DEBUG)
         handler = logging.StreamHandler(sys.stdout)
-        fmt = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-        handler.setFormatter(logging.Formatter(fmt))
+        formatter = logging.Formatter(
+            "%(asctime)s [%(levelname)s] [%(name)s] %(message)s"
+        )
+        handler.setFormatter(formatter)
         logger.addHandler(handler)
-    logger.setLevel(level)
     return logger
