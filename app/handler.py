@@ -8,51 +8,34 @@ logger = get_logger("AppHandler")
 
 
 class AppHandler:
-    """
-    Application handler:
-    - Logs every raw packet to CSV
-    - Responds to ping/message/etc.
-    """
-
     def __init__(self, network_layer):
         self.network = network_layer
 
     def handle_raw(self, raw: bytes, addr: Tuple[str, int]):
-        """
-        First log the packet into CSV,
-        then process it at application level.
-        """
-        # Log incoming packet before parsing
-        log_packet(addr, raw)
+        log_packet(addr, raw)   # <-- NEW
 
         msg = parse_message(raw)
         if not msg:
-            logger.warning(f"Received unparseable message from {addr}")
+            logger.warning(f"Invalid message from {addr}")
             return
 
         self.handle(msg, addr)
 
     def handle(self, msg: dict, addr: Tuple[str, int]):
-        msg_type = msg.get("msg_type")
+        t = msg.get("msg_type")
         seq = msg.get("seq")
-        payload = msg.get("payload", {})
+        p = msg.get("payload", {})
 
-        if msg_type == "ping":
-            logger.info(f"ping from {addr} seq={seq}")
-            resp = make_message("pong", {"received_seq": seq}, seq=seq)
-            self.network.send(addr, resp)
+        if t == "ping":
+            logger.info(f"Ping from {addr}")
+            self.network.send(addr, make_message("pong", seq=seq))
 
-        elif msg_type == "message":
-            content = payload.get("text")
-            logger.info(f"message from {addr} seq={seq}: {content!r}")
-            ack = make_message("ack", {"ack_seq": seq}, seq=seq)
-            self.network.send(addr, ack)
+        elif t == "message":
+            logger.info(f"Message from {addr}: {p.get('text')}")
+            self.network.send(addr, make_message("ack", seq=seq))
 
-        elif msg_type == "pong":
-            logger.info(f"pong from {addr} seq={seq} payload={payload}")
+        elif t == "pong":
+            logger.info(f"Pong received")
 
-        elif msg_type == "ack":
-            logger.info(f"ack from {addr} seq={seq} payload={payload}")
-
-        else:
-            logger.debug(f"Unknown msg_type {msg_type} from {addr}")
+        elif t == "ack":
+            logger.info(f"ACK received")

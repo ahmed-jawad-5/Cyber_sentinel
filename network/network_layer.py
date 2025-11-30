@@ -2,61 +2,70 @@
 import socket
 import threading
 import random
+from utils.logger import get_logger
+
+logger = get_logger("NetworkLayer")
+
 
 class NetworkLayer:
-    """
-    UDP Network Layer with optional simulated packet loss.
-    """
-
-    def __init__(self, local_ip="0.0.0.0", local_port=5000, buffer_size=4096, loss_rate=0.0):
-        self.local_ip = local_ip
-        self.local_port = local_port
-        self.buffer_size = buffer_size
+    def __init__(self, bind=("0.0.0.0", 0), loss_rate=0.0):
+        """
+        bind = (ip, port)
+        loss_rate = 0.0 to 1.0 (simulate packet drops)
+        """
+        self.bind = bind
         self.loss_rate = loss_rate
+        self.buffer_size = 65535
+        self.running = False
 
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        self.sock.bind((self.local_ip, self.local_port))
+        self.sock.bind(self.bind)
 
-        self.running = False
-        self.listen_thread = None
-        self.on_receive = None
+        logger.info(f"NetworkLayer bound on {self.bind}")
 
     def start_listening(self, callback):
-        """Start listening in a background thread."""
-        self.on_receive = callback
+        """
+        callback(raw_bytes, addr)
+        """
         self.running = True
-        self.listen_thread = threading.Thread(target=self._listen_loop, daemon=True)
-        self.listen_thread.start()
 
-    def _listen_loop(self):
+        t = threading.Thread(target=self._listen_loop, args=(callback,), daemon=True)
+        t.start()
+
+        logger.info("Listening thread started.")
+
+    def _listen_loop(self, callback):
         while self.running:
             try:
                 data, addr = self.sock.recvfrom(self.buffer_size)
-                print(f"[DEBUG][NetworkLayer] ({self.local_ip}:{self.local_port}) received {len(data)} bytes from {addr}")
-                # Simulate packet loss
-                if self.loss_rate > 0 and random.random() < self.loss_rate:
-                    print("[DEBUG][NetworkLayer] dropping packet due to simulated loss")
-                    continue
-                if self.on_receive:
-                    self.on_receive(data, addr)
-            except ConnectionResetError:
-                # Ignore Windows ICMP "Port Unreachable"
-                continue
+
+                logger.debug(f"Received {len(data)} bytes from {addr}")
+
+                callback(data, addr)
+
             except OSError:
                 break
             except Exception as e:
-                print(f"[NetworkLayer] Receive error: {e}")
+                logger.error(f"Receive error: {e}")
 
-    def send(self, data_bytes, addr):
-        """Send bytes to addr (tuple IP, port)."""
+    def send(self, addr, data: bytes):
+        """
+        addr = (ip, port)
+        data = bytes only
+        """
         try:
-            if not isinstance(data_bytes, bytes):
-                raise TypeError(f"NetworkLayer.send() expects bytes, got {type(data_bytes)}")
-            print(f"[DEBUG][NetworkLayer] sending {len(data_bytes)} bytes from ({self.local_ip}:{self.local_port}) to {addr}")
-            self.sock.sendto(data_bytes, addr)
+            if not isinstance(data, bytes):
+                logger.error("SEND ERROR: data must be bytes")
+                return
+
+            if random.random() < self.loss_rate:
+                logger.warning("Simulated packet loss!")
+                return
+
+            self.sock.sendto(data, addr)
+
         except Exception as e:
-            print(f"[NetworkLayer] Send error: {e}")
+            logger.error(f"Send error: {e}")
 
     def stop(self):
         self.running = False
@@ -64,3 +73,4 @@ class NetworkLayer:
             self.sock.close()
         except:
             pass
+        logger.info("NetworkLayer stopped.")
