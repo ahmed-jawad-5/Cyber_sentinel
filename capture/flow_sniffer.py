@@ -2,6 +2,9 @@
 from scapy.all import sniff
 from .flow_tracker import FlowTracker
 from .feature_extractor import FeatureExtractor
+import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.logger import get_logger
 
 logger = get_logger("FLOW_SNIFFER")

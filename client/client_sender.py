@@ -4,6 +4,9 @@ import json
 import time
 from capture.flow_sniffer import FlowSnifferRunner
 from utils.logger import get_logger
+import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 logger = get_logger("CLIENT")
 
