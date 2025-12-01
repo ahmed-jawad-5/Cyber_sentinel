@@ -1,52 +1,37 @@
 # capture/flow_sniffer.py
-import csv
-import time
-from capture.feature_extractor import FeatureExtractor
-from capture.flow_tracker import FlowTracker
-from server.anomaly_detector import AnomalyDetector
+from scapy.all import sniff
+from .flow_tracker import FlowTracker
+from .feature_extractor import FeatureExtractor
+from utils.logger import get_logger
+
+logger = get_logger("FLOW_SNIFFER")
 
 class FlowSnifferRunner:
     def __init__(self):
-        self.flow_tracker = FlowTracker()
-        self.feature_extractor = FeatureExtractor()
-        self.detector = AnomalyDetector(model_path="models/xg_boost.pkl",
-                                        scaler_path="models/scaler.pkl")
-        self.csv_file = "output/captured_flows.csv"
+        self.tracker = FlowTracker()
+        self.extractor = FeatureExtractor()
 
-        # Write header if file empty
-        with open(self.csv_file, "a", newline="") as f:
-            writer = csv.writer(f)
-            header = ["timestamp", "src_ip", "dst_ip", "src_port", "dst_port"] + \
-                     self.detector.selected_features + ["label"]
-            writer.writerow(header)
+    def _process_packet(self, packet):
+        flow_key, flow_complete = self.tracker.add_packet(packet)
 
-    def process_flow(self, raw_flow):
-        """
-        Called for each raw flow (dict with packet info)
-        """
-        # Extract 34 features
-        features = self.feature_extractor.extract(raw_flow)
+        if flow_complete:
+            # Extract features (34)
+            features = self.extractor.extract(flow_complete)
+            logger.info(f"[FLOW COMPLETED] {flow_key} | 34 features extracted.")
+            return features
 
-        # Predict anomaly/normal
-        label = self.detector.predict(features)
+        return None
 
-        # Add timestamp and src/dst info
-        timestamp = time.time()
-        src_ip = raw_flow.get("src_ip", "0.0.0.0")
-        dst_ip = raw_flow.get("dst_ip", "0.0.0.0")
-        src_port = raw_flow.get("src_port", 0)
-        dst_port = raw_flow.get("dst_port", 0)
+    def run_sniffer(self):
+        """Generator yields completed flow feature dictionaries."""
+        def callback(pkt):
+            result = self._process_packet(pkt)
+            if result:
+                yield_result.append(result)
 
-        # Save to CSV
-        with open(self.csv_file, "a", newline="") as f:
-            writer = csv.writer(f)
-            row = [timestamp, src_ip, dst_ip, src_port, dst_port] + \
-                  [features[f] for f in self.detector.selected_features] + [label]
-            writer.writerow(row)
+        yield_result = []
 
-    def run(self):
-        """
-        Main loop: get flows from FlowTracker and process them
-        """
-        for raw_flow in self.flow_tracker.get_flows():  # your existing flow source
-            self.process_flow(raw_flow)
+        sniff(prn=lambda pkt: callback(pkt), store=False)
+
+        while yield_result:
+            yield yield_result.pop(0)

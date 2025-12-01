@@ -1,67 +1,67 @@
-import os
-import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# server/server_receiver.py
 import socket
 import json
-import pickle
-import traceback
+import csv
+import xgboost as xgb
+import numpy as np
+from utils.logger import get_logger
+
+logger = get_logger("SERVER")
 
 HOST = "0.0.0.0"
 PORT = 9000
 
-MODEL_PATH = "model/xg_boost.pkl"    # Adjust path if needed
+# load model
+model = xgb.XGBClassifier()
+model.load_model("models/xg_boost.pkl")
 
-print("[INFO] Starting UDP receiver...")
+csv_file = open("output/received_flows.csv", "a", newline="")
+writer = None
 
-try:
-    with open(MODEL_PATH, "rb") as f:
-        model = pickle.load(f)
-    print("[INFO] Model loaded successfully!")
-except Exception as e:
-    print("[ERROR] Model load failed:", e)
-    model = None  # continue without prediction
+def predict(features):
+    global writer
 
-sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sock.bind((HOST, PORT))
+    if writer is None:
+        writer = csv.DictWriter(csv_file, fieldnames=list(features.keys()) + ["anomaly"])
+        writer.writeheader()
 
-print(f"[INFO] Receiver listening on {HOST}:{PORT}")
+    X = np.array(list(features.values()), dtype=float).reshape(1, -1)
 
-while True:
-    try:
-        data, addr = sock.recvfrom(65535)
+    pred = model.predict(X)[0]
+    features["anomaly"] = int(pred)
 
-        print(f"\n[INFO] Packet received from {addr}")
-        print(f"[DEBUG RAW] {data}")
+    writer.writerow(features)
+    csv_file.flush()
 
-        try:
-            decoded = json.loads(data.decode())
-        except:
-            print("[ERROR] JSON decode failed:", traceback.format_exc())
-            continue
+    logger.info(f"[FLOW RECEIVED] anomaly={pred}")
 
-        print("[DEBUG] Parsed JSON:", decoded)
+def start_server():
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind((HOST, PORT))
+    sock.listen(5)
 
-        # Extract features for the model
-        features = [
-            len(decoded.get("src_ip", "")),
-            len(decoded.get("dst_ip", "")),
-            int(decoded.get("src_port", 0)),
-            int(decoded.get("dst_port", 0)),
-            int(decoded.get("payload_size", 0))
-        ]
+    logger.info(f"Server listening on {HOST}:{PORT}")
 
-        print("[DEBUG] Features:", features)
+    conn, addr = sock.accept()
+    logger.info(f"Connected by {addr}")
 
-        # If model loaded, predict
-        if model:
+    buffer = ""
+
+    while True:
+        data = conn.recv(4096)
+        if not data:
+            break
+
+        buffer += data.decode()
+        while "\n" in buffer:
+            line, buffer = buffer.split("\n", 1)
             try:
-                prediction = model.predict([features])[0]
-                print("[INFO] Prediction:", "ANOMALY" if prediction == 1 else "NORMAL")
+                features = json.loads(line)
+                predict(features)
             except Exception as e:
-                print("[ERROR] Model prediction failed:", e)
-        else:
-            print("[WARN] Model not loaded; skipping prediction")
+                logger.error(f"JSON error: {e}")
 
-    except Exception as e:
-        print("[ERROR] Exception:", e)
-        print(traceback.format_exc())
+    conn.close()
+
+if __name__ == "__main__":
+    start_server()

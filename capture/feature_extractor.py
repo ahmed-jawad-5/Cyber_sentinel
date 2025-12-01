@@ -1,44 +1,39 @@
 # capture/feature_extractor.py
+import json
+import numpy as np
+from utils.logger import get_logger
+
+logger = get_logger("FEATURE_EXTRACTOR")
+
 class FeatureExtractor:
+    def __init__(self):
+        with open("capture/feature_schema.json") as f:
+            self.schema = json.load(f)
+
     def extract(self, flow):
-        """
-        Given a raw flow (list of packets or dict), extract 34 features.
-        Must return a dict with keys matching selected_features.
-        """
-        features = {
-            'proto': flow.get('proto', 6),
-            'state': flow.get('state', 1),
-            'sbytes': flow.get('sbytes', 0),
-            'dbytes': flow.get('dbytes', 0),
-            'sttl': flow.get('sttl', 64),
-            'dttl': flow.get('dttl', 64),
-            'sloss': flow.get('sloss', 0),
-            'service': flow.get('service', 0),
-            'Sload': flow.get('Sload', 0),
-            'swin': flow.get('swin', 0),
-            'dwin': flow.get('dwin', 0),
-            'stcpb': flow.get('stcpb', 0),
-            'dtcpb': flow.get('dtcpb', 0),
-            'smeansz': flow.get('smeansz', 0),
-            'dmeansz': flow.get('dmeansz', 0),
-            'res_bdy_len': flow.get('res_bdy_len', 0),
-            'Sjit': flow.get('Sjit', 0),
-            'Sintpkt': flow.get('Sintpkt', 0),
-            'Dintpkt': flow.get('Dintpkt', 0),
-            'tcprtt': flow.get('tcprtt', 0),
-            'synack': flow.get('synack', 0),
-            'ackdat': flow.get('ackdat', 0),
-            'is_sm_ips_ports': flow.get('is_sm_ips_ports', 0),
-            'ct_state_ttl': flow.get('ct_state_ttl', 0),
-            'ct_flw_http_mthd': flow.get('ct_flw_http_mthd', 0),
-            'is_ftp_login': flow.get('is_ftp_login', 0),
-            'ct_ftp_cmd': flow.get('ct_ftp_cmd', 0),
-            'ct_srv_src': flow.get('ct_srv_src', 0),
-            'ct_srv_dst': flow.get('ct_srv_dst', 0),
-            'ct_dst_ltm': flow.get('ct_dst_ltm', 0),
-            'ct_src_ltm': flow.get('ct_src_ltm', 0),
-            'ct_src_dport_ltm': flow.get('ct_src_dport_ltm', 0),
-            'ct_dst_sport_ltm': flow.get('ct_dst_sport_ltm', 0),
-            'ct_dst_src_ltm': flow.get('ct_dst_src_ltm', 0)
-        }
+        packets = flow["packets"]
+        key = flow["key"]
+
+        features = {}
+
+        # Example extraction
+        features["src_ip"] = key[0]
+        features["dst_ip"] = key[1]
+        features["src_port"] = key[2]
+        features["dst_port"] = key[3]
+        features["protocol"] = key[4]
+
+        # Add all features defined in schema
+        for f in self.schema:
+            features[f["name"]] = self._compute_feature(f["name"], packets)
+
         return features
+
+    def _compute_feature(self, name, packets):
+        # Placeholder for your real logic
+        if name == "packet_count":
+            return len(packets)
+        if name == "byte_count":
+            return sum(len(p) for p in packets)
+
+        return 0
