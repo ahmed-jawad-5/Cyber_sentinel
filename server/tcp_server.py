@@ -1,77 +1,67 @@
-# server/tcp_server.py
-import socket
 import os
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import threading
+import socket
 import json
-import csv
-import os
-from utils.logger import get_logger
-from config.settings import OUTPUT_CSV
-
-logger = get_logger("TCPServer")
-
-FEATURES = [
-    'proto','state','sbytes','dbytes','sttl','dttl','sloss','service',
-    'Sload','swin','dwin','stcpb','dtcpb','smeansz','dmeansz','res_bdy_len',
-    'Sjit','Sintpkt','Dintpkt','tcprtt','synack','ackdat','is_sm_ips_ports',
-    'ct_state_ttl','ct_flw_http_mthd','is_ftp_login','ct_ftp_cmd','ct_srv_src',
-    'ct_srv_dst','ct_dst_ltm','ct_src_ltm','ct_src_dport_ltm','ct_dst_sport_ltm',
-    'ct_dst_src_ltm'
-]
+import pickle
+import traceback
 
 HOST = "0.0.0.0"
 PORT = 9000
-os.makedirs(os.path.dirname(OUTPUT_CSV) or ".", exist_ok=True)
 
-# Ensure CSV header exists
-if not os.path.exists(OUTPUT_CSV):
-    with open(OUTPUT_CSV, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(FEATURES + ["_flow_key_src","_flow_key_dst","_flow_key_sport","_flow_key_dport","_flow_key_proto"])
+MODEL_PATH = "model/xg_boost.pkl"    # Adjust path if needed
 
-def handle_connection(conn, addr):
-    logger.info(f"Client connected: {addr}")
-    buf = ""
+print("[INFO] Starting UDP receiver...")
+
+try:
+    with open(MODEL_PATH, "rb") as f:
+        model = pickle.load(f)
+    print("[INFO] Model loaded successfully!")
+except Exception as e:
+    print("[ERROR] Model load failed:", e)
+    model = None  # continue without prediction
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.bind((HOST, PORT))
+
+print(f"[INFO] Receiver listening on {HOST}:{PORT}")
+
+while True:
     try:
-        with conn:
-            while True:
-                data = conn.recv(4096)
-                if not data:
-                    logger.info(f"Client disconnected: {addr}")
-                    break
-                buf += data.decode("utf-8", errors="ignore")
-                while "\n" in buf:
-                    line, buf = buf.split("\n", 1)
-                    if not line.strip():
-                        continue
-                    try:
-                        obj = json.loads(line)
-                    except json.JSONDecodeError:
-                        logger.warning("Received invalid JSON line, skipping")
-                        continue
-                    # write row to CSV
-                    row = [obj.get(k) for k in FEATURES]
-                    fk = obj.get("_flow_key", {})
-                    row += [fk.get("src"), fk.get("dst"), fk.get("sport"), fk.get("dport"), fk.get("proto")]
-                    with open(OUTPUT_CSV, "a", newline="") as f:
-                        writer = csv.writer(f)
-                        writer.writerow(row)
-                    logger.info("Logged feature row to CSV")
-    except Exception:
-        logger.exception("Connection handler error")
+        data, addr = sock.recvfrom(65535)
 
-def start_server(host=HOST, port=PORT):
-    logger.info(f"Starting TCP server on {host}:{port}")
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        s.bind((host, port))
-        s.listen(5)
-        while True:
-            conn, addr = s.accept()
-            t = threading.Thread(target=handle_connection, args=(conn, addr), daemon=True)
-            t.start()
+        print(f"\n[INFO] Packet received from {addr}")
+        print(f"[DEBUG RAW] {data}")
 
-if __name__ == "__main__":
-    start_server()
+        try:
+            decoded = json.loads(data.decode())
+        except:
+            print("[ERROR] JSON decode failed:", traceback.format_exc())
+            continue
+
+        print("[DEBUG] Parsed JSON:", decoded)
+
+        # Extract features for the model
+        features = [
+            len(decoded.get("src_ip", "")),
+            len(decoded.get("dst_ip", "")),
+            int(decoded.get("src_port", 0)),
+            int(decoded.get("dst_port", 0)),
+            int(decoded.get("payload_size", 0))
+        ]
+
+        print("[DEBUG] Features:", features)
+
+        # If model loaded, predict
+        if model:
+            try:
+                prediction = model.predict([features])[0]
+                print("[INFO] Prediction:", "ANOMALY" if prediction == 1 else "NORMAL")
+            except Exception as e:
+                print("[ERROR] Model prediction failed:", e)
+        else:
+            print("[WARN] Model not loaded; skipping prediction")
+
+    except Exception as e:
+        print("[ERROR] Exception:", e)
+        print(traceback.format_exc())

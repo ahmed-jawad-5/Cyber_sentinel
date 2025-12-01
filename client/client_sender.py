@@ -1,88 +1,70 @@
+from scapy.all import IP, UDP, Raw
 import socket
 import json
+import random
 import time
-from generator.packet_generator import PacketGenerator
-from capture.feature_extractor import FeatureExtractor
+import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# =========================
-# Configuration
-# =========================
-SERVER_IP = "192.168.223.103"  # Replace with your server IP
-SERVER_PORT = 9000           # Replace with your server port
-NUM_FLOWS = 50               # How many flows to send
-DELAY_BETWEEN = 0.5          # Seconds between flows
+SERVER_IP = "10.5.40.102"
+SERVER_PORT = 9000
 
-# =========================
-# Initialize components
-# =========================
-gen = PacketGenerator(dst_ip=SERVER_IP)
-extractor = FeatureExtractor()
+def generate_packet():
+    """Generate normal or anomalous packets."""
 
-# =========================
-# Connect to server
-# =========================
+    is_anomaly = random.random() < 0.3  # 30% anomaly
+
+    if not is_anomaly:
+        # NORMAL PACKET
+        src_ip = f"192.168.1.{random.randint(2, 254)}"
+        dst_ip = SERVER_IP
+        sport = random.randint(1024, 65535)
+        dport = SERVER_PORT
+        payload = "normal_data_" + str(random.randint(1000, 9999))
+    else:
+        # ANOMALOUS PACKET
+        src_ip = f"10.{random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}"
+        dst_ip = SERVER_IP
+        sport = random.choice([0, 65000, 9999])     # weird ports
+        dport = random.choice([1, 2, 3, 9999])      # suspicious low ports
+        payload = "ANOMALY_" + "X" * random.randint(50, 300)  # large payload
+
+    pkt = IP(src=src_ip, dst=dst_ip) / UDP(sport=sport, dport=dport) / Raw(load=payload)
+
+    print("\n[DEBUG] Generated Packet:")
+    print(f"  SRC IP  : {src_ip}")
+    print(f"  DST IP  : {dst_ip}")
+    print(f"  SPORT   : {sport}")
+    print(f"  DPORT   : {dport}")
+    print(f"  Payload : {payload[:30]}...")
+    print(f"  Anomaly?: {is_anomaly}")
+
+    return pkt, is_anomaly
+
+
+def packet_to_json(pkt, is_anomaly):
+    return {
+        "src_ip": pkt[IP].src,
+        "dst_ip": pkt[IP].dst,
+        "src_port": pkt[UDP].sport,
+        "dst_port": pkt[UDP].dport,
+        "payload_size": len(pkt[Raw].load),
+        "is_anomaly": is_anomaly
+    }
+
+
 print(f"[INFO] Connecting to server {SERVER_IP}:{SERVER_PORT}...")
-sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-sock.connect((SERVER_IP, SERVER_PORT))
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 print("[INFO] Connected!")
 
-# =========================
-# Send flows
-# =========================
-for i in range(1, NUM_FLOWS + 1):
-    # Generate a packet (normal or anomalous)
-    pkt = gen.generate_packet()
+while True:
+    pkt, is_anomaly = generate_packet()
+    data_dict = packet_to_json(pkt, is_anomaly)
 
-    # Extract features for sending (34 features)
-    flow_features = extractor.extract({
-        "src_ip": pkt[0][1].src,
-        "dst_ip": pkt[0][1].dst,
-        "src_port": pkt[0][2].sport if hasattr(pkt[0][2], "sport") else 0,
-        "dst_port": pkt[0][2].dport if hasattr(pkt[0][2], "dport") else 0,
-        "proto": 6 if pkt.haslayer("TCP") else 17,
-        "state": 1,
-        "sbytes": len(pkt),
-        "dbytes": len(pkt),
-        "sttl": pkt[0][1].ttl,
-        "dttl": pkt[0][1].ttl,
-        "sloss": 0,
-        "service": 0,
-        "Sload": len(pkt),
-        "swin": 0,
-        "dwin": 0,
-        "stcpb": 0,
-        "dtcpb": 0,
-        "smeansz": len(pkt),
-        "dmeansz": len(pkt),
-        "res_bdy_len": 0,
-        "Sjit": 0,
-        "Sintpkt": 0,
-        "Dintpkt": 0,
-        "tcprtt": 0,
-        "synack": 0,
-        "ackdat": 0,
-        "is_sm_ips_ports": 0,
-        "ct_state_ttl": 0,
-        "ct_flw_http_mthd": 0,
-        "is_ftp_login": 0,
-        "ct_ftp_cmd": 0,
-        "ct_srv_src": 0,
-        "ct_srv_dst": 0,
-        "ct_dst_ltm": 0,
-        "ct_src_ltm": 0,
-        "ct_src_dport_ltm": 0,
-        "ct_dst_sport_ltm": 0,
-        "ct_dst_src_ltm": 0
-    })
+    json_data = json.dumps(data_dict).encode()
 
-    # Send JSON over TCP
-    try:
-        sock.sendall(json.dumps(flow_features).encode() + b"\n")
-        print(f"[INFO] Sent flow {i}/{NUM_FLOWS}: src={flow_features['src_ip']} dst={flow_features['dst_ip']} anomaly={pkt.haslayer('Raw') and len(pkt['Raw'])>100}")
-    except Exception as e:
-        print(f"[ERROR] Failed to send flow {i}: {e}")
+    print(f"[INFO] Sending packet → {data_dict}")
 
-    time.sleep(DELAY_BETWEEN)
-
-print("[INFO] Finished sending flows. Closing connection.")
-sock.close()
+    sock.sendto(json_data, (SERVER_IP, SERVER_PORT))
+    time.sleep(1)
