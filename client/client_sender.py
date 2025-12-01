@@ -1,65 +1,88 @@
-# client/client_sender.py
 import socket
 import json
 import time
-import sys
-from capture.flow_sniffer import FlowSnifferRunner
-from config.settings import SERVER_IP, SERVER_PORT
-from utils.logger import get_logger
+from generator.packet_generator import PacketGenerator
+from capture.feature_extractor import FeatureExtractor
 
-logger = get_logger("ClientSender")
+# =========================
+# Configuration
+# =========================
+SERVER_IP = "192.168.223.103"  # Replace with your server IP
+SERVER_PORT = 9000           # Replace with your server port
+NUM_FLOWS = 50               # How many flows to send
+DELAY_BETWEEN = 0.5          # Seconds between flows
 
-class FeatureTCPClient:
-    def __init__(self, server_ip=SERVER_IP, server_port=SERVER_PORT):
-        self.server_ip = server_ip
-        self.server_port = server_port
-        self.sock = None
+# =========================
+# Initialize components
+# =========================
+gen = PacketGenerator(dst_ip=SERVER_IP)
+extractor = FeatureExtractor()
 
-    def connect(self, retries=3, retry_delay=2):
-        for i in range(retries):
-            try:
-                self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                self.sock.connect((self.server_ip, self.server_port))
-                logger.info(f"Connected to server {self.server_ip}:{self.server_port}")
-                return True
-            except Exception as e:
-                logger.warning(f"Connect attempt {i+1} failed: {e}")
-                time.sleep(retry_delay)
-        logger.error("Could not connect to server")
-        return False
+# =========================
+# Connect to server
+# =========================
+print(f"[INFO] Connecting to server {SERVER_IP}:{SERVER_PORT}...")
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.connect((SERVER_IP, SERVER_PORT))
+print("[INFO] Connected!")
 
-    def send_features(self, features: dict):
-        try:
-            data = json.dumps(features, default=str).encode("utf-8") + b"\n"
-            self.sock.sendall(data)
-            logger.info("Sent feature vector")
-        except Exception:
-            logger.exception("Send error")
+# =========================
+# Send flows
+# =========================
+for i in range(1, NUM_FLOWS + 1):
+    # Generate a packet (normal or anomalous)
+    pkt = gen.generate_packet()
 
-    def close(self):
-        try:
-            if self.sock:
-                self.sock.close()
-        except:
-            pass
+    # Extract features for sending (34 features)
+    flow_features = extractor.extract({
+        "src_ip": pkt[0][1].src,
+        "dst_ip": pkt[0][1].dst,
+        "src_port": pkt[0][2].sport if hasattr(pkt[0][2], "sport") else 0,
+        "dst_port": pkt[0][2].dport if hasattr(pkt[0][2], "dport") else 0,
+        "proto": 6 if pkt.haslayer("TCP") else 17,
+        "state": 1,
+        "sbytes": len(pkt),
+        "dbytes": len(pkt),
+        "sttl": pkt[0][1].ttl,
+        "dttl": pkt[0][1].ttl,
+        "sloss": 0,
+        "service": 0,
+        "Sload": len(pkt),
+        "swin": 0,
+        "dwin": 0,
+        "stcpb": 0,
+        "dtcpb": 0,
+        "smeansz": len(pkt),
+        "dmeansz": len(pkt),
+        "res_bdy_len": 0,
+        "Sjit": 0,
+        "Sintpkt": 0,
+        "Dintpkt": 0,
+        "tcprtt": 0,
+        "synack": 0,
+        "ackdat": 0,
+        "is_sm_ips_ports": 0,
+        "ct_state_ttl": 0,
+        "ct_flw_http_mthd": 0,
+        "is_ftp_login": 0,
+        "ct_ftp_cmd": 0,
+        "ct_srv_src": 0,
+        "ct_srv_dst": 0,
+        "ct_dst_ltm": 0,
+        "ct_src_ltm": 0,
+        "ct_src_dport_ltm": 0,
+        "ct_dst_sport_ltm": 0,
+        "ct_dst_src_ltm": 0
+    })
 
-def main():
-    client = FeatureTCPClient()
-    if not client.connect():
-        sys.exit(1)
-
-    # callback: when sniffer has a features dict ready, send it over TCP
-    def on_feature_ready(features):
-        client.send_features(features)
-
-    sniffer = FlowSnifferRunner(on_feature_ready=on_feature_ready)
+    # Send JSON over TCP
     try:
-        sniffer.start()
-    except KeyboardInterrupt:
-        logger.info("Keyboard Interrupt - stopping")
-    finally:
-        sniffer.stop()
-        client.close()
+        sock.sendall(json.dumps(flow_features).encode() + b"\n")
+        print(f"[INFO] Sent flow {i}/{NUM_FLOWS}: src={flow_features['src_ip']} dst={flow_features['dst_ip']} anomaly={pkt.haslayer('Raw') and len(pkt['Raw'])>100}")
+    except Exception as e:
+        print(f"[ERROR] Failed to send flow {i}: {e}")
 
-if __name__ == "__main__":
-    main()
+    time.sleep(DELAY_BETWEEN)
+
+print("[INFO] Finished sending flows. Closing connection.")
+sock.close()

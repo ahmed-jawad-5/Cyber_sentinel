@@ -1,7 +1,7 @@
 # config/settings.py
 
 # Sniffer network interface used by client (Scapy)
-IFACE = "WiFi"     # change to your actual interface, e.g. "eth0", "en0", or interface index on Windows
+IFACE = "wlan0"     # change to your actual interface, e.g. "eth0", "en0", or interface index on Windows
 
 # BPF filter for sniffing (capture what you want; 'ip' captures all IPv4)
 BPF_FILTER = "ip"

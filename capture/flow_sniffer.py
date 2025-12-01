@@ -1,46 +1,52 @@
 # capture/flow_sniffer.py
-from scapy.all import sniff
-from capture.packet_parser import parse_packet
+import csv
+import time
+from capture.feature_extractor import FeatureExtractor
 from capture.flow_tracker import FlowTracker
-from capture.feature_extractor import extract_features
-from utils.logger import get_logger
-from config.settings import IFACE, BPF_FILTER
-
-logger = get_logger("FlowSniffer")
+from server.anomaly_detector import AnomalyDetector
 
 class FlowSnifferRunner:
-    def __init__(self, on_feature_ready):
+    def __init__(self):
+        self.flow_tracker = FlowTracker()
+        self.feature_extractor = FeatureExtractor()
+        self.detector = AnomalyDetector(model_path="models/xg_boost.pkl",
+                                        scaler_path="models/scaler.pkl")
+        self.csv_file = "output/captured_flows.csv"
+
+        # Write header if file empty
+        with open(self.csv_file, "a", newline="") as f:
+            writer = csv.writer(f)
+            header = ["timestamp", "src_ip", "dst_ip", "src_port", "dst_port"] + \
+                     self.detector.selected_features + ["label"]
+            writer.writerow(header)
+
+    def process_flow(self, raw_flow):
         """
-        on_feature_ready(features_dict) -> called when a flow is complete and features are extracted.
+        Called for each raw flow (dict with packet info)
         """
-        self.on_feature_ready = on_feature_ready
-        self.tracker = FlowTracker(on_flow_complete=self._on_flow_complete)
+        # Extract 34 features
+        features = self.feature_extractor.extract(raw_flow)
 
-    def _on_flow_complete(self, flow_key, packets):
-        try:
-            features = extract_features(flow_key, packets)
-            if features:
-                # attach basic flow_key info optionally
-                features["_flow_key"] = {
-                    "src": flow_key[0],
-                    "dst": flow_key[1],
-                    "sport": flow_key[2],
-                    "dport": flow_key[3],
-                    "proto": flow_key[4]
-                }
-                # call external callback to send features (client) or store
-                self.on_feature_ready(features)
-        except Exception:
-            logger.exception("Feature extraction error")
+        # Predict anomaly/normal
+        label = self.detector.predict(features)
 
-    def _process(self, pkt):
-        parsed = parse_packet(pkt)
-        if parsed:
-            self.tracker.update(parsed)
+        # Add timestamp and src/dst info
+        timestamp = time.time()
+        src_ip = raw_flow.get("src_ip", "0.0.0.0")
+        dst_ip = raw_flow.get("dst_ip", "0.0.0.0")
+        src_port = raw_flow.get("src_port", 0)
+        dst_port = raw_flow.get("dst_port", 0)
 
-    def start(self, iface=IFACE, bpf_filter=BPF_FILTER):
-        logger.info(f"Starting sniff on iface={iface} filter={bpf_filter}")
-        sniff(iface=iface, filter=bpf_filter, prn=self._process, store=False)
+        # Save to CSV
+        with open(self.csv_file, "a", newline="") as f:
+            writer = csv.writer(f)
+            row = [timestamp, src_ip, dst_ip, src_port, dst_port] + \
+                  [features[f] for f in self.detector.selected_features] + [label]
+            writer.writerow(row)
 
-    def stop(self):
-        self.tracker.stop()
+    def run(self):
+        """
+        Main loop: get flows from FlowTracker and process them
+        """
+        for raw_flow in self.flow_tracker.get_flows():  # your existing flow source
+            self.process_flow(raw_flow)

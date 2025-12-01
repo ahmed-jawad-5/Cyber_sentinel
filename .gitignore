@@ -1,0 +1,9 @@
+.venv/
+models/SVM_model.pkl
+models/SVM_model copy.pkl
+models/RandomForest_model.pkl
+models/OneClassSVM_model.pkl
+models/LogisticRegression_model.pkl
+models/IsolationForest_model.pkl
+models/DNN_model.h5
+models/Autoencoder_model.h5

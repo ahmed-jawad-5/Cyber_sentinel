@@ -1,32 +1,44 @@
 # generator/packet_generator.py
-from scapy.all import IP, TCP, UDP, Ether, send, sendp, RandIP, RandShort
-import time
+from scapy.all import IP, TCP, UDP, Raw
 import random
-import argparse
+import string
+import os
 
-def make_tcp_packet(src, dst, sport=None, dport=80, payload=b"Hello"):
-    sport = sport or random.randint(1024,65535)
-    pkt = IP(src=src, dst=dst, ttl=random.randint(40,64)) / TCP(sport=sport, dport=dport, flags="PA", seq=random.randint(0,1<<30)) / payload
-    return pkt
+class PacketGenerator:
+    def __init__(self, dst_ip="192.168.1.20"):
+        self.dst_ip = dst_ip
 
-def make_udp_packet(src, dst, sport=None, dport=53, payload=b"DNSQ"):
-    sport = sport or random.randint(1024,65535)
-    pkt = IP(src=src, dst=dst, ttl=random.randint(40,64)) / UDP(sport=sport, dport=dport) / payload
-    return pkt
+    def make_normal_packet(self):
+        payload = ''.join(random.choices(string.ascii_letters + string.digits, k=50)).encode()
+        sport = random.randint(1024, 65535)
+        dport = 80
+        proto = random.choice(["TCP", "UDP"])
+        if proto == "TCP":
+            pkt = IP(src="192.168.1.10", dst=self.dst_ip) / TCP(sport=sport, dport=dport) / Raw(payload)
+        else:
+            pkt = IP(src="192.168.1.10", dst=self.dst_ip) / UDP(sport=sport, dport=dport) / Raw(payload)
+        return pkt
 
-def send_loop(iface, dst_ip, src_ip=None, count=100, delay=0.05):
-    src_ip = src_ip or RandIP()
-    for i in range(count):
-        pkt = make_tcp_packet(str(src_ip), dst_ip) if random.random() < 0.7 else make_udp_packet(str(src_ip), dst_ip)
-        send(pkt, iface=iface, verbose=False)
-        time.sleep(delay)
+    def make_anomalous_packet(self):
+        # TCP SYN flood style or abnormal TTL
+        payload = os.urandom(200)
+        sport = random.randint(1, 1024)
+        dport = 80
+        abnormal_ttl = random.randint(1, 5)
+        pkt_type = random.choice(["SYN_FLOOD", "MALFORMED_TTL"])
+        if pkt_type == "SYN_FLOOD":
+            pkt = IP(src=f"10.0.{random.randint(0,255)}.{random.randint(0,255)}",
+                     dst=self.dst_ip) / TCP(sport=sport, dport=dport, flags="S") / Raw(payload)
+        else:
+            pkt = IP(src=f"10.0.{random.randint(0,255)}.{random.randint(0,255)}",
+                     dst=self.dst_ip, ttl=abnormal_ttl) / TCP(sport=sport, dport=dport) / Raw(payload)
+        return pkt
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--iface", default="wlan0")
-    parser.add_argument("--dst", required=True)
-    parser.add_argument("--src", default=None)
-    parser.add_argument("--count", type=int, default=200)
-    parser.add_argument("--delay", type=float, default=0.02)
-    args = parser.parse_args()
-    send_loop(args.iface, args.dst, src_ip=args.src, count=args.count, delay=args.delay)
+    def generate_packet(self):
+        """
+        Randomly choose normal or anomalous packet
+        """
+        if random.random() < 0.2:  # 20% chance of anomaly
+            return self.make_anomalous_packet()
+        else:
+            return self.make_normal_packet()
