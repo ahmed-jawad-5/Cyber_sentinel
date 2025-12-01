@@ -5,38 +5,38 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import socket
 import json
 import csv
-import xgboost as xgb
-import numpy as np
 from utils.logger import get_logger
+from server.anomaly_detector import AnomalyDetector
 
 logger = get_logger("SERVER")
 
 HOST = "0.0.0.0"
 PORT = 9000
-
-# load model
-model = xgb.XGBClassifier()
-model.load_model("models/xg_boost.pkl")
+detector = AnomalyDetector()
 
 csv_file = open("output/received_flows.csv", "a", newline="")
 writer = None
 
+
 def predict(features):
+    """Apply the trained anomaly detector and write to CSV.
+
+    Expects `features` to contain the columns defined in feature_schema.json,
+    compatible with AnomalyDetector.selected_features.
+    """
     global writer
 
     if writer is None:
         writer = csv.DictWriter(csv_file, fieldnames=list(features.keys()) + ["anomaly"])
         writer.writeheader()
 
-    X = np.array(list(features.values()), dtype=float).reshape(1, -1)
-
-    pred = model.predict(X)[0]
-    features["anomaly"] = int(pred)
+    label = detector.predict(features)  # "normal" or "anomaly"
+    features["anomaly"] = label
 
     writer.writerow(features)
     csv_file.flush()
 
-    logger.info(f"[FLOW RECEIVED] anomaly={pred}")
+    logger.info(f"[FLOW RECEIVED] anomaly={label}")
 
 def start_server():
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

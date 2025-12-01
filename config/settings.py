@@ -11,7 +11,7 @@ FLOW_TIMEOUT = 10.0
 
 # TCP server to which the client will send feature JSONs
 # On the client side set SERVER_IP to the server laptop IP (change before running)
-SERVER_IP = "10.5.40.102"
+SERVER_IP = "10.5.45.31"
 SERVER_PORT = 9000
 
 # Server CSV output (path relative to server script)
