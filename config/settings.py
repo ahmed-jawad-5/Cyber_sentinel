@@ -15,4 +15,5 @@ SERVER_IP = "10.5.40.102"
 SERVER_PORT = 9000
 
 # Server CSV output (path relative to server script)
-OUTPUT_CSV = "output/captured_flows.csv"
+CAPTURED_FLOWS_CSV = "output/captured_flows.csv"
+ANOMALIES_CSV = "output/anomalies.csv"

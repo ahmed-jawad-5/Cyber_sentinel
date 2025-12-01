@@ -1,10 +1,10 @@
+import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # capture/feature_extractor.py
 import json
 import numpy as np
 from utils.logger import get_logger
-import os
-import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 logger = get_logger("FEATURE_EXTRACTOR")
 
