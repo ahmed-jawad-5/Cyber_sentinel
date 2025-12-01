@@ -94,6 +94,8 @@ if __name__ == "__main__":
                 feature_names[i]: json_safe_convert(features[i])
                 for i in range(min(len(features), len(feature_names)))
             }
+
+            # Send features to server for anomaly detection/storage
             send_flow_to_server(sock, features_dict)
         except Exception as e:
             logger.error(f"Error processing flow features: {e}")
@@ -108,7 +110,8 @@ if __name__ == "__main__":
     def generator_thread():
         try:
             while not stop_event.is_set():
-                pkt = pkt_gen.generate_packet()
+                pkt, label = pkt_gen.generate_packet()
+                logger.info(f"[GENERATOR] Created {label} packet")
                 send(pkt, verbose=False)
                 time.sleep(0.1)
         except Exception as e:

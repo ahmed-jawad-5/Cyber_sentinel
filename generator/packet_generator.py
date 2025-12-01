@@ -35,10 +35,17 @@ class PacketGenerator:
         return pkt
 
     def generate_packet(self):
+        """Randomly choose normal (70%) or anomalous (30%) packet.
+
+        Returns
+        -------
+        pkt : scapy.Packet
+            The generated packet.
+        label : str
+            "ANOMALY" or "NORMAL" indicating the intended class.
         """
-        Randomly choose normal or anomalous packet
-        """
-        if random.random() < 0.2:  # 20% chance of anomaly
-            return self.make_anomalous_packet()
-        else:
-            return self.make_normal_packet()
+        # if random.random() < 0.3:  # 30% chance of anomaly
+        #     return self.make_anomalous_packet(), "ANOMALY"
+        # else:
+        return self.make_normal_packet(), "NORMAL"
+        
