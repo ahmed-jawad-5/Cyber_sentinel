@@ -6,7 +6,7 @@ import signal
 import sys
 
 # --- Configuration ---
-SERVER_HOST = "192.168.1.2"   # Your receiver/server IP
+SERVER_HOST = "192.168.223.103"   # Your receiver/server IP
 SERVER_PORT = 9000
 # ---------------------
 
