@@ -1,51 +1,31 @@
-# generator/packet_generator.py
-from scapy.all import IP, TCP, UDP, Raw
+import time
 import random
-import string
-import os
+from scapy.all import IP, TCP, send, Raw
 
-class PacketGenerator:
-    def __init__(self, dst_ip="192.168.1.20"):
-        self.dst_ip = dst_ip
+TARGET_IP = "192.168.1.2"   # change to receiver IP
+TARGET_PORT = 5000
+INTERFACE = None            # leave None for default, or set "eth0"/"wlan0"
 
-    def make_normal_packet(self):
-        payload = ''.join(random.choices(string.ascii_letters + string.digits, k=50)).encode()
-        sport = random.randint(1024, 65535)
-        dport = 80
-        proto = random.choice(["TCP", "UDP"])
-        if proto == "TCP":
-            pkt = IP(src="192.168.1.10", dst=self.dst_ip) / TCP(sport=sport, dport=dport) / Raw(payload)
-        else:
-            pkt = IP(src="192.168.1.10", dst=self.dst_ip) / UDP(sport=sport, dport=dport) / Raw(payload)
-        return pkt
+def make_flow(src_port=None, payload_size=50):
+    if src_port is None:
+        src_port = random.randint(20000, 40000)
+    payload = bytes(random.choices(
+        b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", k=payload_size))
+    # Basic 3-packet like flow: SYN, PSH+ACK with data, FIN
+    syn = IP(dst=TARGET_IP)/TCP(sport=src_port, dport=TARGET_PORT, flags="S", seq=1000)
+    data = IP(dst=TARGET_IP)/TCP(sport=src_port, dport=TARGET_PORT, flags="PA", seq=1001, ack=1)/Raw(payload)
+    fin = IP(dst=TARGET_IP)/TCP(sport=src_port, dport=TARGET_PORT, flags="F", seq=1002, ack=1)
+    return [syn, data, fin]
 
-    def make_anomalous_packet(self):
-        # TCP SYN flood style or abnormal TTL
-        payload = os.urandom(200)
-        sport = random.randint(1, 1024)
-        dport = 80
-        abnormal_ttl = random.randint(1, 5)
-        pkt_type = random.choice(["SYN_FLOOD", "MALFORMED_TTL"])
-        if pkt_type == "SYN_FLOOD":
-            pkt = IP(src=f"10.0.{random.randint(0,255)}.{random.randint(0,255)}",
-                     dst=self.dst_ip) / TCP(sport=sport, dport=dport, flags="S") / Raw(payload)
-        else:
-            pkt = IP(src=f"10.0.{random.randint(0,255)}.{random.randint(0,255)}",
-                     dst=self.dst_ip, ttl=abnormal_ttl) / TCP(sport=sport, dport=dport) / Raw(payload)
-        return pkt
+def generate(n_flows=5, inter_flow_delay=1.0):
+    print(f"Generating {n_flows} flows to {TARGET_IP}:{TARGET_PORT}...")
+    for i in range(n_flows):
+        pkts = make_flow(payload_size=random.randint(20,120))
+        for p in pkts:
+            send(p, iface=INTERFACE, verbose=False)
+            time.sleep(0.01)
+        time.sleep(inter_flow_delay)
+    print("Done generating flows.")
 
-    def generate_packet(self):
-        """Randomly choose normal (70%) or anomalous (30%) packet.
-
-        Returns
-        -------
-        pkt : scapy.Packet
-            The generated packet.
-        label : str
-            "ANOMALY" or "NORMAL" indicating the intended class.
-        """
-        # if random.random() < 0.3:  # 30% chance of anomaly
-        #     return self.make_anomalous_packet(), "ANOMALY"
-        # else:
-        return self.make_normal_packet(), "NORMAL"
-        
+if __name__ == "__main__":
+    generate(n_flows=10, inter_flow_delay=0.5)
