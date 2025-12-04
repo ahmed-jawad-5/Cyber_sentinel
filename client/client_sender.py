@@ -6,7 +6,7 @@ import signal
 import sys
 
 # --- Configuration ---
-SERVER_HOST = "192.168.223.103"   # Your receiver/server IP
+SERVER_HOST = "10.5.44.189"   # Your receiver/server IP
 SERVER_PORT = 9000
 # ---------------------
 
@@ -54,7 +54,7 @@ def start_flow_tracker():
     Patch flow_tracker._expire_flow so that when a flow completes,
     we extract its features and send them to the server.
     """
-    # ✅ Correct relative imports for your folder structure
+    # ✅ Correct imports for your folder structure
     from generator.captures import flow_tracker
     from generator.captures import feature_extractor
     from generator.captures import feature_schema
@@ -71,7 +71,7 @@ def start_flow_tracker():
             flow_snapshot = flows.get(key)
 
         if flow_snapshot:
-            # Convert flow → 34 features → OrderedDict
+            # Convert flow → 34 numeric features → OrderedDict
             features = feature_extractor.flow_to_features(flow_snapshot)
             ordered = feature_schema.validate_and_fill(features)
             # Send to server
