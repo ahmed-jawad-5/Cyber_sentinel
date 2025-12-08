@@ -5,7 +5,7 @@ from collections import OrderedDict
 from generator.captures.feature_schema import FEATURE_ORDER as FALLBACK_FEATURE_ORDER
 
 MODEL_PATH = "./models/XGBoost_model.pkl"
-SCALER_PATH = "./models/scaler.pkl"
+SCALER_PATH = "./models/scaler.save"
 
 
 class ModelRunner:
