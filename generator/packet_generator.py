@@ -20,49 +20,78 @@ def make_normal_flow():
     return [syn, data, fin], "normal"
 
 # =================================================================
-# 2. DoS Attack (UNSW-NB15 style: HTTP DoS + SYN Flood mix)
+# 2. DoS Attack (extreme volume, very high rate)
 # =================================================================
 def make_dos_attack():
+    """Extreme DoS: hundreds of packets in a very short time.
+
+    This should create flows with:
+      - very large sbytes
+      - tiny duration
+      - extremely high Sload and very small Sintpkt
+    """
     packets = []
     src_port = 6666
 
-    # 50–150 rapid packets: some SYN, some with huge payload (like Slowloris + Hulk)
-    for i in range(random.randint(60, 120)):
-        if random.random() < 0.4:
-            # Pure SYN (classic SYN flood)
-            p = IP(dst=TARGET_IP, src=RandIP())/TCP(sport=RandShort(), dport=TARGET_PORT, flags="S")
+    # 300–800 rapid packets: SYN flood + huge HTTP-like payloads
+    for i in range(random.randint(300, 800)):
+        if random.random() < 0.5:
+            # Pure SYN (classic SYN flood) from many spoofed IPs
+            p = IP(dst=TARGET_IP, src=RandIP())/TCP(
+                sport=RandShort(),
+                dport=TARGET_PORT,
+                flags="S",
+                seq=random.randint(1, 10_000_000),
+            )
         else:
-            # Large/fake HTTP requests (Hulk-style DoS)
-            fake_url = random.choice([b"/admin.php", b"/login", b"/?id=999999", b"/search?q=" + b"A"*200])
-            payload = b"GET " + fake_url + b" HTTP/1.1\r\nUser-Agent: Mozilla\r\n\r\n"
-            p = IP(dst=TARGET_IP)/TCP(sport=src_port, dport=TARGET_PORT, flags="PA", seq=i*1000)/Raw(payload)
+            # Oversized/fake HTTP requests
+            fake_url = random.choice([
+                b"/admin.php",
+                b"/login",
+                b"/api/v1/resource/" + b"A" * random.randint(500, 4000),
+            ])
+            payload = b"GET " + fake_url + b" HTTP/1.1\r\nUser-Agent: DoS-Tool\r\n\r\n"
+            p = IP(dst=TARGET_IP)/TCP(
+                sport=src_port,
+                dport=TARGET_PORT,
+                flags="PA",
+                seq=i * 4096,
+                ack=1,
+            )/Raw(payload)
 
         packets.append(p)
 
+    # No sleep here: send as fast as possible from caller
     return packets, "dos"
 
 # =================================================================
-# 3. Fuzzers Attack (Malformed/random data to crash services)
+# 3. Fuzzers Attack (very large malformed payloads, strange flags)
 # =================================================================
 def make_fuzzers_attack():
+    """Extreme fuzzing: huge random payloads and odd TCP flag combos.
+
+    This should push smeansz high and create unusual flag patterns
+    compared to generic HTTP.
+    """
     packets = []
     src_port = 31337
 
-    for i in range(random.randint(15, 40)):
-        # Totally random garbage payload + weird flags
-        garbage = random.randbytes(random.randint(50, 2000))
-        weird_flags = random.choice(["S", "F", "R", "P", "PA", "FA", "SA", "RA", "U"])
+    for i in range(random.randint(30, 80)):
+        # Very large random garbage payload + weird flags
+        garbage = random.randbytes(random.randint(2000, 8000))
+        weird_flags = random.choice(["F", "R", "U", "SF", "SR", "FPU", "PA", "FA"])
 
         p = IP(dst=TARGET_IP)/TCP(
             sport=src_port,
             dport=random.choice([TARGET_PORT, 22, 21, 3306, 445, 3389]),  # random service port
             flags=weird_flags,
-            seq=random.randint(1, 999999),
-            ack=random.randint(1, 999999)
+            seq=random.randint(1, 9_999_999),
+            ack=random.randint(1, 9_999_999),
         )/Raw(garbage)
 
         packets.append(p)
-        time.sleep(0.02)  # fast but not too fast
+        # much tighter timing than normal traffic
+        time.sleep(0.001)
 
     return packets, "fuzzers"
 
@@ -167,21 +196,26 @@ def make_analysis_flow():
     return packets, "analysis"
 
 # =================================================================
-# 9. Shellcode (binary payloads, NOP sled-like content)
+# 9. Shellcode (binary payloads, long NOP sleds)
 # =================================================================
 def make_shellcode_attack():
+    """Extreme shellcode-style payloads.
+
+    Long NOP sleds + random bytes, making very large payload sizes
+    that should stand out strongly from generic HTTP.
+    """
     packets = []
     src_port = random.randint(20000, 60000)
 
-    for i in range(random.randint(5, 20)):
-        nop_sled = b"\x90" * random.randint(50, 200)
-        shell_bytes = random.randbytes(random.randint(50, 200))
+    for i in range(random.randint(10, 40)):
+        nop_sled = b"\x90" * random.randint(500, 3000)
+        shell_bytes = random.randbytes(random.randint(500, 3000))
         payload = nop_sled + shell_bytes
         p = IP(dst=TARGET_IP)/TCP(
             sport=src_port,
             dport=random.choice([TARGET_PORT, 4444, 31337]),
             flags="PA",
-            seq=5000 + i * 50,
+            seq=5000 + i * 4096,
             ack=1,
         )/Raw(payload)
         packets.append(p)
