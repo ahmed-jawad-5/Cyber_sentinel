@@ -1,3 +1,4 @@
+# client/client_sender.py
 import socket
 import json
 import threading
@@ -23,24 +24,33 @@ def sender_worker():
             if flow_data is None:  # Shutdown signal
                 break
 
-            # Convert OrderedDict → JSON line
+            # Convert OrderedDict/dict → JSON line
             json_line = json.dumps(flow_data) + "\n"
 
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.connect((SERVER_HOST, SERVER_PORT))
                 s.sendall(json_line.encode('utf-8'))
 
-            print(f"[Sent] → {flow_data['proto']} {flow_data.get('service','?')} flow "
-                  f"({flow_data['sbytes']}↑ {flow_data['dbytes']}↓ bytes)")
+            # best-effort log (fields may not exist)
+            sbytes = flow_data.get('sbytes', 0)
+            dbytes = flow_data.get('dbytes', 0)
+            print(f"[Sent] → flow ({sbytes}↑ {dbytes}↓ bytes)")
 
         except (ConnectionRefusedError, BrokenPipeError, OSError):
             print(f"[Error] Could not connect to {SERVER_HOST}:{SERVER_PORT} — is the server running?")
-            outbound_queue.put(flow_data)  # Retry later
+            # Put it back to retry later
+            try:
+                outbound_queue.put(flow_data)
+            except Exception:
+                pass
             break
         except Exception as e:
             print(f"[Sender Error] {e}")
         finally:
-            outbound_queue.task_done()
+            try:
+                outbound_queue.task_done()
+            except Exception:
+                pass
 
 
 def enqueue_flow(flow_ordered_dict):
@@ -54,10 +64,9 @@ def start_flow_tracker():
     Patch flow_tracker._expire_flow so that when a flow completes,
     we extract its features and send them to the server.
     """
-    # ✅ Correct imports for your folder structure
+    # imports relative to package
     from generator.captures import flow_tracker
-    from generator.captures import feature_extractor
-    from generator.captures import feature_schema
+    from generator.captures import feature_extractor, feature_schema
 
     # References
     start_sniff = flow_tracker.start_sniff
@@ -71,10 +80,10 @@ def start_flow_tracker():
             flow_snapshot = flows.get(key)
 
         if flow_snapshot:
-            # Convert flow → 34 numeric features → OrderedDict
+            # Convert flow → 18 numeric features (dict/OrderedDict)
             features = feature_extractor.flow_to_features(flow_snapshot)
             ordered = feature_schema.validate_and_fill(features)
-            # Send to server
+            # Send to server queue
             enqueue_flow(ordered)
 
         # Now call the original logic (which deletes the flow)
@@ -101,7 +110,7 @@ signal.signal(signal.SIGINT, signal_handler)
 
 # === Main ===
 if __name__ == "__main__":
-    print("=== Real-time UNSW-NB15 Flow Exporter ===\n")
+    print("=== Real-time UNSW-NB15 Flow Exporter (18-features) ===\n")
     print(f"Sending flows → {SERVER_HOST}:{SERVER_PORT}")
     print("Press Ctrl+C to stop\n")
 

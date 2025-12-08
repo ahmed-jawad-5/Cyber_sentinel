@@ -1,27 +1,52 @@
-
+# generator/captures/feature_schema.py
 from collections import OrderedDict
 
-FEATURE_ORDER = [
-    "proto","state","sbytes","dbytes","sttl","dttl","sloss","service","Sload",
-    "swin","dwin","stcpb","dtcpb","smeansz","dmeansz","res_bdy_len","Sjit",
-    "Sintpkt","Dintpkt","tcprtt","synack","ackdat","is_sm_ips_ports",
-    "ct_state_ttl","ct_flw_http_mthd","is_ftp_login","ct_ftp_cmd","ct_srv_src",
-    "ct_srv_dst","ct_dst_ltm","ct_src_ltm","ct_src_dport_ltm","ct_dst_sport_ltm",
+# === single source-of-truth list (18 features) ===
+FEATURE_SCHEMA = [
+    "dur",
+    "sbytes",
+    "dbytes",
+    "Sload",
+    "swin",
+    "stcpb",
+    "smeansz",
+    "Sjit",
+    "Djit",
+    "Stime",
+    "Sintpkt",
+    "tcprtt",
+    "synack",
+    "ct_srv_src",
+    "ct_srv_dst",
+    "ct_dst_ltm",
+    "ct_src_ltm",
     "ct_dst_src_ltm"
 ]
 
+# keep old name available for compatibility
+FEATURE_ORDER = FEATURE_SCHEMA
+
 def validate_and_fill(features_dict):
     """
-    Return an OrderedDict with FEATURE_ORDER as keys. For missing keys, fill with 0 or sensible default.
+    Return an OrderedDict with FEATURE_ORDER as keys. For missing keys, fill with zeros
+    or reasonable defaults. Ensures numeric values where possible.
     """
     out = OrderedDict()
     for key in FEATURE_ORDER:
         if key in features_dict:
-            out[key] = features_dict[key]
+            val = features_dict[key]
+            # ensure numeric where appropriate
+            try:
+                # If value is bool or int-like/float-like, convert to float/int as appropriate.
+                if isinstance(val, (int, float)):
+                    out[key] = val
+                else:
+                    # attempt numeric conversion
+                    out[key] = float(val)
+            except Exception:
+                # fallback: keep as-is for non-numeric (rare) or set 0
+                out[key] = 0
         else:
-            # default for service should be "other"
-            if key == "service":
-                out[key] = "other"
-            else:
-                out[key] = 0 if not key.endswith("_mthd") else 0
+            # missing -> default 0 (safe numeric)
+            out[key] = 0
     return out

@@ -1,3 +1,4 @@
+# server/receiver.py
 """
 TCP Inference Server:
 Receives JSON, validates schema, runs XGBoost model, prints prediction.
@@ -8,7 +9,7 @@ import threading
 import json
 
 from generator.captures.feature_schema import validate_and_fill
-from server.model_runner import ModelRunner       # <-- Correct import
+from server.model_runner import ModelRunner      
 
 HOST = "0.0.0.0"
 PORT = 9000
