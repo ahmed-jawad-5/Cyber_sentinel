@@ -3,6 +3,7 @@
 import pickle
 import joblib
 import numpy as np
+import pandas as pd
 from collections import OrderedDict
 from generator.captures.feature_schema import FEATURE_ORDER as FALLBACK_FEATURE_ORDER
 
@@ -94,8 +95,17 @@ class ModelRunner:
 
         X = self._extract_features(feature_dict)
 
+        # Prepare input for scaler. If the scaler was fitted on a pandas
+        # DataFrame with feature names, we must provide a DataFrame with
+        # the same column names to avoid sklearn's
+        # "X does not have valid feature names" error.
+        if hasattr(self.scaler, "feature_names_in_"):
+            X_in = pd.DataFrame(X, columns=self.feature_order)
+        else:
+            X_in = X
+
         # Apply scaler
-        X_scaled = self.scaler.transform(X)
+        X_scaled = self.scaler.transform(X_in)
 
         # XGBoost model expected to have predict_proba() with shape (1, n_classes)
         proba = self.model.predict_proba(X_scaled)[0]
