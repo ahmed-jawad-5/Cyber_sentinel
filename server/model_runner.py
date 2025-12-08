@@ -1,23 +1,24 @@
 # server/model_runner.py
 
 import pickle
-import joblib
 import numpy as np
 from collections import OrderedDict
 from generator.captures.feature_schema import FEATURE_ORDER as FALLBACK_FEATURE_ORDER
 
 MODEL_PATH = "./models/XGBoost_model.pkl"
-SCALER_PATH = "./models/scaler.save"     # <-- joblib-saved file
 
 
 class ModelRunner:
-    """Loads model + scaler and performs predictions."""
+    """Loads model and performs predictions on raw 18 features.
+
+    The scaler is intentionally disabled; the model is evaluated directly on
+    the 18 features defined in FEATURE_SCHEMA / FALLBACK_FEATURE_ORDER.
+    """
 
     def __init__(self,
-                 model_path=MODEL_PATH,
-                 scaler_path=SCALER_PATH):
+                 model_path=MODEL_PATH):
 
-        print("[ModelRunner] Loading model + scaler...")
+        print("[ModelRunner] Loading model (NO scaler, raw 18 features)...")
 
         # ------------------------
         # Load XGBoost model (.pkl)
@@ -26,21 +27,16 @@ class ModelRunner:
             self.model = pickle.load(f)
 
         # ------------------------
-        # Load scaler saved via joblib
+        # Scaler disabled on purpose
         # ------------------------
-        self.scaler = joblib.load(scaler_path)
+        # self.scaler = joblib.load(scaler_path)
+        self.scaler = None
 
-        # ------------------------
-        # Determine feature order
-        # ------------------------
-        if hasattr(self.scaler, "feature_names_in_"):
-            self.feature_order = list(self.scaler.feature_names_in_)
-            print("[ModelRunner] Using feature order from scaler.")
-        else:
-            self.feature_order = list(FALLBACK_FEATURE_ORDER)
-            print("[ModelRunner] Using fallback feature schema.")
+        # Always use the 18-feature schema order
+        self.feature_order = list(FALLBACK_FEATURE_ORDER)
+        print("[ModelRunner] Using fallback feature schema (18 features).")
 
-        print("[ModelRunner] Model + scaler loaded successfully.")
+        print("[ModelRunner] Model loaded successfully.")
         print(f"[ModelRunner] Feature order: {self.feature_order}")
 
     # ----------------------------------------------------------------------
@@ -61,15 +57,19 @@ class ModelRunner:
 
     # ----------------------------------------------------------------------
     def predict(self, feature_dict):
-        """Scale features and return prediction + probability."""
+        """Return prediction + probability on raw 18 features.
+
+        No scaler is applied; the model receives the 18 values in
+        self.feature_order directly.
+        """
 
         X = self._extract_features(feature_dict)
 
-        # Apply scaler
-        X_scaled = self.scaler.transform(X)
+        # Directly feed raw features into the model (no scaling)
+        X_in = X
 
         # XGBoost model expected to have predict_proba()
-        prob = float(self.model.predict_proba(X_scaled)[0, 1])
+        prob = float(self.model.predict_proba(X_in)[0, 1])
 
         label = "anomaly" if prob >= 0.5 else "normal"
 

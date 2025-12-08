@@ -94,7 +94,6 @@ def start_server():
 
     model_runner = ModelRunner(
         model_path="models/XGBoost_model.pkl",
-        scaler_path="models/scaler.save"
     )
 
     # CSV header = feature names + prob + label
