@@ -76,7 +76,7 @@ def generate_traffic(total_flows=100):
     for i in range(1, total_flows + 1):
         r = random.random()
 
-        if r < 0.10:              # 10% → DoS
+        if r < 0.20:              # 10% → DoS
             pkts, label = make_dos_attack()
             print(f"[{i}] Sending DoS attack ({len(pkts)} packets)")
         elif r < 0.20:            # 10% → Fuzzers
