@@ -1,86 +1,49 @@
 # server/model_runner.py
 
+import os
 import numpy as np
-import pandas as pd
+from keras.models import load_model
 import joblib
-from tensorflow.keras.models import load_model
-from collections import OrderedDict
-from generator.captures.feature_schema import FEATURE_ORDER as FALLBACK_FEATURE_ORDER
-
-MODEL_PATH = "./models/autoencoder.h5"
-SCALER_PATH = "./models/scaler.save"
-
-# Choose a threshold for marking anomaly
-# You MUST tune it using validation data
-RECON_ERROR_THRESHOLD = 0.02    # example value – adjust as needed
 
 
 class ModelRunner:
-    """Loads autoencoder + scaler and performs anomaly scoring."""
-
     def __init__(self,
-                 model_path=MODEL_PATH,
-                 scaler_path=SCALER_PATH):
+                 model_path="./models/autoencoder.h5",
+                 scaler_path="./models/scaler.save"):
 
-        print("[ModelRunner] Loading Autoencoder model + scaler...")
+        print("[ModelRunner] Loading Autoencoder + Scaler...")
 
-        # Load autoencoder
-        self.model = load_model(model_path)
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Autoencoder not found at: {model_path}")
 
-        # Load scaler
-        self.scaler = joblib.load(scaler_path)
+        # Load AE WITHOUT compiling (fixes Keras 3 mse error)
+        self.model = load_model(model_path, compile=False)
+        print("[ModelRunner] Autoencoder loaded successfully.")
 
-        # Determine feature order
-        if hasattr(self.scaler, "feature_names_in_"):
-            self.feature_order = list(self.scaler.feature_names_in_)
-            print("[ModelRunner] Using feature order from scaler.")
+        if os.path.exists(scaler_path):
+            self.scaler = joblib.load(scaler_path)
+            print("[ModelRunner] Scaler loaded.")
         else:
-            self.feature_order = list(FALLBACK_FEATURE_ORDER)
-            print("[ModelRunner] Using fallback feature schema.")
+            self.scaler = None
+            print("[ModelRunner] Warning: scaler not found, continuing WITHOUT scaling.")
 
-        print("[ModelRunner] Autoencoder model + scaler loaded successfully.")
-        print(f"[ModelRunner] Feature order: {self.feature_order}")
+    # ----------------------------------------------------------------------
 
-    # -----------------------------------------------------------
-    def _extract_features(self, features):
-        """Convert dict/OrderedDict → numpy vector following feature order."""
+    def predict(self, feature_vector):
+        fv = np.array(feature_vector).reshape(1, -1)
 
-        if isinstance(features, OrderedDict):
-            vals = list(features.values())
-            return np.array([vals], dtype=float)
+        if self.scaler is not None:
+            fv = self.scaler.transform(fv)
 
-        elif isinstance(features, dict):
-            vals = [features.get(name, 0.0) for name in self.feature_order]
-            return np.array([vals], dtype=float)
+        reconstructed = self.model.predict(fv, verbose=0)
 
-        else:
-            raise TypeError("Features must be OrderedDict or dict.")
+        mse = np.mean(np.power(fv - reconstructed, 2))
 
-    # -----------------------------------------------------------
-    def predict(self, feature_dict):
-        """Scale features → autoencoder → reconstruction error → anomaly."""
+        threshold = 0.001
 
-        X = self._extract_features(feature_dict)
-
-        # Convert to DataFrame if scaler requires feature names
-        if hasattr(self.scaler, "feature_names_in_"):
-            X_in = pd.DataFrame(X, columns=self.feature_order)
-        else:
-            X_in = X
-
-        # Scale input
-        X_scaled = self.scaler.transform(X_in)
-
-        # Get model reconstruction
-        X_recon = self.model.predict(X_scaled, verbose=0)
-
-        # Compute reconstruction error (MSE per row)
-        error = float(np.mean((X_scaled - X_recon) ** 2))
-
-        # Decide label
-        label = "anomaly" if error > RECON_ERROR_THRESHOLD else "normal"
+        label = "normal" if mse < threshold else "anomaly"
 
         return {
-            "prob": error,    # Here, prob = reconstruction error
+            "reconstruction_error": float(mse),
             "label": label
         }

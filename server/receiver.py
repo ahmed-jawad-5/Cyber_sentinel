@@ -2,7 +2,7 @@
 TCP Inference Server:
 Receives JSON, validates schema,
 SAVES FEATURES FIRST,
-then runs XGBoost model and updates CSV with prediction.
+then runs Autoencoder model and updates CSV with prediction.
 """
 
 import socket
@@ -32,41 +32,38 @@ def init_csv(header):
 
 
 # ---------------------------------------------------------
-# Save ONLY features (no prediction yet)
-# Returns: row index written
+# Save features only (append empty prediction columns)
 # ---------------------------------------------------------
 def save_features_only(ordered_features):
     row = list(ordered_features.values())
 
     with open(CSV_PATH, "a", newline="") as f:
         wr = csv.writer(f)
-        wr.writerow(row + ["", ""])  # placeholders for prob, label
+        wr.writerow(row + ["", ""])  # placeholders for error and label
 
-    # Determine row index (last row)
+    # Determine row index (last row excluding header)
     with open(CSV_PATH, "r") as f:
-        return sum(1 for _ in f) - 2  # subtract header row
+        return sum(1 for _ in f) - 2
 
 
 # ---------------------------------------------------------
-# Update prediction in an existing CSV row
+# Update a specific CSV row with prediction
 # ---------------------------------------------------------
-def update_prediction(row_index, prob, label):
-    # Read all rows
+def update_prediction(row_index, error, label):
     with open(CSV_PATH, "r") as f:
         rows = list(csv.reader(f))
 
-    # Update only the prediction fields
-    rows[row_index + 1][-2] = str(prob)       # prob column
-    rows[row_index + 1][-1] = str(label)      # label column
+    # Update specific row
+    rows[row_index + 1][-2] = str(error)
+    rows[row_index + 1][-1] = str(label)
 
-    # Rewrite whole CSV
     with open(CSV_PATH, "w", newline="") as f:
         wr = csv.writer(f)
         wr.writerows(rows)
 
 
 # ---------------------------------------------------------
-# Handle each incoming packet/flow
+# Handle incoming packet
 # ---------------------------------------------------------
 def handle_conn(conn, addr, model_runner):
     try:
@@ -84,31 +81,25 @@ def handle_conn(conn, addr, model_runner):
         if not text:
             return
 
-        # Parse JSON
         obj = json.loads(text)
 
-        # Reorder features
         ordered = validate_and_fill(obj)
 
-        # ---------------------------------------------------------
-        # STEP 1: Save raw incoming features BEFORE prediction
-        # ---------------------------------------------------------
+        # Save row first:
         row_index = save_features_only(ordered)
 
-        # ---------------------------------------------------------
-        # STEP 2: Perform prediction
-        # ---------------------------------------------------------
-        result = model_runner.predict(ordered)
+        # Predict
+        result = model_runner.predict(list(ordered.values()))
 
         print(
-            f"[{addr}] Prediction: {result['label'].upper()} "
-            f"(prob={result['prob']:.4f})"
+            f"[{addr}] {result['label'].upper()} "
+            f"(error={result['reconstruction_error']:.6f})"
         )
 
-        # ---------------------------------------------------------
-        # STEP 3: Update the CSV row with prediction results
-        # ---------------------------------------------------------
-        update_prediction(row_index, result["prob"], result["label"])
+        # Update CSV
+        update_prediction(row_index,
+                          result["reconstruction_error"],
+                          result["label"])
 
     except Exception as e:
         print("Error handling connection:", e)
@@ -118,17 +109,19 @@ def handle_conn(conn, addr, model_runner):
 
 
 # ---------------------------------------------------------
-# Main Server Loop
+# Main server loop
 # ---------------------------------------------------------
 def start_server():
     print("[Receiver] Loading model...")
 
     model_runner = ModelRunner(
-        model_path="models/XGBoost_model.pkl",
+        model_path="models/autoencoder.h5",
+        scaler_path="models/scaler.save"
     )
 
-    # CSV header
-    header = list(model_runner.feature_order) + ["prob", "label"]
+    # Build CSV header dynamically
+    sample_order = validate_and_fill({})  # empty -> filled with defaults
+    header = list(sample_order.keys()) + ["reconstruction_error", "label"]
     init_csv(header)
 
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -141,7 +134,6 @@ def start_server():
     try:
         while True:
             conn, addr = s.accept()
-
             threading.Thread(
                 target=handle_conn,
                 args=(conn, addr, model_runner),
