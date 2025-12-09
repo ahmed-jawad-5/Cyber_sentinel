@@ -19,7 +19,7 @@ FEATURE_SCHEMA = [
     "ct_srv_src",
     "ct_srv_dst",
     "ct_dst_ltm",
-    "ct_src_ltm",
+    "ct_src_ ltm",
     "ct_dst_src_ltm"
 ]
 
