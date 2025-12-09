@@ -127,7 +127,7 @@ def flow_to_features(f):
     # ct_dst_ltm, ct_src_ltm, ct_dst_src_ltm: long-term counters are not available
     # Provide reasonable defaults or proxies:
     features["ct_dst_ltm"] = int(f.get("ct_dst_ltm", 1) or 1)
-    features["ct_src_ltm"] = int(f.get("ct_src_ltm", 1) or 1)
+    features["ct_src_ ltm"] = int(f.get("ct_src_ ltm", 1) or 1)
     features["ct_dst_src_ltm"] = int(f.get("ct_dst_src_ltm", 1) or 1)
 
     # build final dict in the FEATURE_ORDER
