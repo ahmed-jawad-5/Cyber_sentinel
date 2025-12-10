@@ -39,7 +39,7 @@ class ModelRunner:
 
         mse = np.mean(np.power(fv - reconstructed, 2))
 
-        threshold = 0.001
+        threshold = 0.01
 
         label = "normal" if mse < threshold else "anomaly"
 

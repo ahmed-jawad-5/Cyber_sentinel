@@ -264,7 +264,7 @@ def generate_traffic(total_flows=100):
         time.sleep(random.uniform(0.5, 3.0))
 
     print("\nFinished! Normal traffic generation complete.")
- =================================================================
+#=================================================================
 if __name__ == "__main__":
     random.seed(123)  # reproducible
     generate_traffic(total_flows=150)   # generates ~30 attacks
