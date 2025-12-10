@@ -250,7 +250,7 @@ def generate_traffic(total_flows=100):
     for i in range(1, total_flows + 1):
 
         # Always generate a normal flow
-        pkts, label = make_normal_flow()
+        pkts, label = make_dos_attack()
 
         if i % 10 == 0:
             print(f"[{i}] normal flow ({len(pkts)} packets)")
@@ -263,7 +263,7 @@ def generate_traffic(total_flows=100):
         # Delay before next flow
         time.sleep(random.uniform(0.5, 3.0))
 
-    print("\nFinished! Normal traffic generation complete.")
+    print("\nFinished! dos traffic generation complete.")
 #=================================================================
 if __name__ == "__main__":
     random.seed(123)  # reproducible
