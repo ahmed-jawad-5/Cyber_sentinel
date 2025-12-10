@@ -6,7 +6,7 @@ then runs Autoencoder model and updates CSV with prediction.
 """
 
 import socket
-import threading
+import threading # multi threadig ~~~>> for multi therads 
 import json
 import csv
 import os
@@ -54,8 +54,8 @@ def update_prediction(row_index, error, label):
         rows = list(csv.reader(f))
 
     # Update specific row
-    rows[row_index + 1][-2] = str(error)
-    rows[row_index + 1][-1] = str(label)
+    rows[row_index + 1][-2] = str(error) # this is the mse 
+    rows[row_index + 1][-1] = str(label) # this is basicallly the prediction 
 
     with open(CSV_PATH, "w", newline="") as f:
         wr = csv.writer(f)
@@ -89,7 +89,8 @@ def handle_conn(conn, addr, model_runner):
         row_index = save_features_only(ordered)
 
         # Predict
-        result = model_runner.predict(list(ordered.values()))
+        result = model_runner.predict(list(ordered.values())) #this is bsically wehre the prediction is happening
+
 
         print(
             f"[{addr}] {result['label'].upper()} "

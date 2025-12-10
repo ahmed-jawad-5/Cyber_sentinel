@@ -7,7 +7,7 @@ import signal
 import sys
 
 # --- Configuration ---
-SERVER_HOST = "10.224.145.103"   
+SERVER_HOST = "192.168.223.103"   
 SERVER_PORT = 9000
 # ---------------------
 

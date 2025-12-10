@@ -244,69 +244,27 @@ def make_worms_attack():
 # Main Generator: ~10% per attack type, remaining Normal (if any)
 # =================================================================
 def generate_traffic(total_flows=100):
-    print(f"Starting UNSW-NB15 traffic generation → {TARGET_IP}:{TARGET_PORT}")
-    print("Traffic mix: ~10% per attack label (analysis, backdoor, backdoors, dos, exploits, fuzzers, generic, reconnaissance, shellcode, worms) + remaining normal\n")
-
-    # Define attack labels and their generators
-    attack_generators = {
-        "analysis": make_analysis_flow,
-        "backdoor": make_backdoor_attack,
-        "backdoors": make_backdoors_attack,
-        "dos": make_dos_attack,
-        "exploits": make_exploits_attack,
-        "fuzzers": make_fuzzers_attack,
-        "generic": make_generic_attack,
-        "reconnaissance": make_reconnaissance_attack,
-        "shellcode": make_shellcode_attack,
-        "worms": make_worms_attack,
-    }
-
-    attack_labels = list(attack_generators.keys())
-
-    # Desired mix: 20% normal, remaining 80% split equally across all attacks
-    normal_prob = 0.20
-    attack_prob_each = (1.0 - normal_prob) / len(attack_labels)
-    total_attack_prob = attack_prob_each * len(attack_labels)
-
-    # Build cumulative distribution
-    choices = []  # (threshold, label)
-    cum = 0.0
-    if normal_prob > 0:
-        cum += normal_prob
-        choices.append((cum, "normal"))
-    for lbl in attack_labels:
-        cum += attack_prob_each
-        choices.append((cum, lbl))
+    print(f"Starting NORMAL traffic generation → {TARGET_IP}:{TARGET_PORT}")
+    print("Traffic mix: 100% normal flows\n")
 
     for i in range(1, total_flows + 1):
-        r = random.random()
-        chosen = None
-        for threshold, lbl in choices:
-            if r <= threshold:
-                chosen = lbl
-                break
-        if chosen is None:
-            chosen = "normal"
 
-        if chosen == "normal":
-            pkts, label = make_normal_flow()
-            if i % 15 == 0:
-                print(f"[{i}] normal flow")
-        else:
-            pkts, label = attack_generators[chosen]()
-            print(f"[{i}] Sending {label} attack ({len(pkts)} packets)")
+        # Always generate a normal flow
+        pkts, label = make_normal_flow()
+
+        if i % 10 == 0:
+            print(f"[{i}] normal flow ({len(pkts)} packets)")
 
         # Send all packets
         for p in pkts:
             send(p, iface=INTERFACE, verbose=False)
-            time.sleep(0.03 if label == "normal" else 0.005)
+            time.sleep(0.03)
 
         # Delay before next flow
-        time.sleep(random.uniform(0.5, 3.0) if label == "normal" else 0.1)
+        time.sleep(random.uniform(0.5, 3.0))
 
-    print("\nFinished! Traffic generation complete.")
-
-# =================================================================
+    print("\nFinished! Normal traffic generation complete.")
+ =================================================================
 if __name__ == "__main__":
     random.seed(123)  # reproducible
     generate_traffic(total_flows=150)   # generates ~30 attacks
