@@ -14,6 +14,8 @@ import os
 from generator.captures.feature_schema import validate_and_fill
 from server.model_runner import ModelRunner
 
+csv_lock = threading.Lock()
+
 HOST = "0.0.0.0"
 PORT = 9000
 
@@ -37,13 +39,14 @@ def init_csv(header):
 def save_features_only(ordered_features):
     row = list(ordered_features.values())
 
-    with open(CSV_PATH, "a", newline="") as f:
-        wr = csv.writer(f)
-        wr.writerow(row + ["", ""])  # placeholders for error and label
+    with csv_lock:
+        with open(CSV_PATH, "a", newline="") as f:
+            wr = csv.writer(f)
+            wr.writerow(row + ["", ""])  # placeholders
 
-    # Determine row index (last row excluding header)
-    with open(CSV_PATH, "r") as f:
-        return sum(1 for _ in f) - 2
+        # Return row index (excluding header)
+        with open(CSV_PATH, "r") as f:
+            return sum(1 for _ in f) - 2
 
 
 # ---------------------------------------------------------
@@ -141,11 +144,32 @@ def handle_conn(conn, addr, model_runner):
         # -------------------------------------------------
         # Update CSV with prediction
         # -------------------------------------------------
-        update_prediction(
-            row_index,
-            result["reconstruction_error"],
-            result["label"]
-        )
+        def update_prediction(row_index, error, label):
+            with open(CSV_PATH, "r") as f:
+                rows = list(csv.reader(f))
+
+            # Safety checks
+            target_row = row_index + 1  # account for header
+
+            if target_row >= len(rows):
+                print(
+                    f"[CSV ERROR] Cannot update row {target_row}. "
+                    f"CSV has only {len(rows)} rows."
+                )
+                return
+
+            if len(rows[target_row]) < 2:
+                print(
+                    f"[CSV ERROR] Row {target_row} malformed: {rows[target_row]}"
+                )
+                return
+
+            rows[target_row][-2] = str(error)
+            rows[target_row][-1] = str(label)
+
+            with open(CSV_PATH, "w", newline="") as f:
+                wr = csv.writer(f)
+                wr.writerows(rows)
 
     except json.JSONDecodeError as e:
         print(f"[ERROR] Invalid JSON from {addr}: {e}")
