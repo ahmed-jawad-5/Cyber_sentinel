@@ -43,9 +43,9 @@ class ModelRunner:
         # Convert input to DataFrame
         fv_df = pd.DataFrame(fv, columns=self.feature_names)
         # Apply Min-Max scaling to 0-1 per column
-        fv_min = fv_df.min()
-        fv_max = fv_df.max()
-        fv_scaled_once = (fv_df - fv_min) / (fv_max - fv_min + 1e-6)
+        fv_mean = fv_df.mean()
+        fv_std = fv_df.std(ddof=0)  # population std
+        fv_scaled_once = (fv_df - fv_mean) / (fv_std + 1e-6)
 
         # -------------------------
         # Save first-scaled features to CSV
