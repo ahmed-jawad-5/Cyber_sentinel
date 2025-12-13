@@ -1,78 +1,73 @@
-# server/model_runner.py
-
 import os
-import numpy as np
 import pandas as pd
-from keras.models import load_model
-import pickle
+import numpy as np
 import joblib
+import xgboost as xgb
+import pickle
+
 class ModelRunner:
     def __init__(self,
                  model_path="./models/XGBoost_model.pkl",
                  scaler_path="./models/scaler.save",
                  output_csv="./scaled_features.csv"):
 
-        print("[ModelRunner] Loading Autoencoder + Scaler...")
+        self.output_csv = output_csv
+        print("[ModelRunner] Loading XGBoost model + Scaler...")
+
         if not os.path.exists(model_path):
-            raise FileNotFoundError(f"Autoencoder not found at: {model_path}")
+            raise FileNotFoundError(f"Model not found at: {model_path}")
 
-        with open(model_path, 'rb') as model_path:
-            self.model = pickle.load(model_path)
-        print("[ModelRunner] Autoencoder loaded successfully.")
+        # Try loading with pickle first
+        try:
+            with open(model_path, 'rb') as f:
+                self.model = pickle.load(f)
+            print("[ModelRunner] Model loaded via pickle.")
+        except Exception:
+            # If pickle fails, try XGBoost native load
+            try:
+                self.model = xgb.Booster()
+                self.model.load_model(model_path)
+                print("[ModelRunner] Model loaded via XGBoost native format.")
+            except Exception as e:
+                raise RuntimeError(f"Failed to load model: {e}")
 
+        # Load scaler
         if os.path.exists(scaler_path):
             self.scaler = joblib.load(scaler_path)
             self.feature_names = list(self.scaler.feature_names_in_)
             print("[ModelRunner] Scaler loaded.")
-            print("[ModelRunner] Scaler feature order:", self.feature_names)
         else:
             self.scaler = None
             self.feature_names = None
-            print("[ModelRunner] Warning: scaler not found, running WITHOUT scaling!")
-
-        self.output_csv = output_csv
-        # Initialize CSV file
-        if not os.path.exists(self.output_csv):
-            pd.DataFrame(columns=self.feature_names).to_csv(self.output_csv, index=False)
+            print("[ModelRunner] Warning: Scaler not found, running WITHOUT scaling!")
 
     def predict(self, feature_vector):
         fv = np.array(feature_vector, dtype=float).reshape(1, -1)
 
         # -------------------------
-        # FIRST SCALING: manual Min-Max 0-1 using all features
-        # -------------------------
-        # Convert input to DataFrame
-        fv_df = pd.DataFrame(fv, columns=self.feature_names)
-        # Apply Min-Max scaling to 0-1 per column
-        # fv_mean = fv_df.mean()
-        # fv_std = fv_df.std(ddof=0)  # population std
-        # fv_scaled_once = (fv_df - fv_mean) / (fv_std + 1e-6)
-
-        # # -------------------------
-        # # Save first-scaled features to CSV
-        # # -------------------------
-        # fv_scaled_once.to_csv(self.output_csv, mode='a', header=False, index=False)
-
-        # -------------------------
-        # SECOND SCALING: apply loaded scaler.save
+        # SCALE FEATURES
         # -------------------------
         if self.scaler is not None:
+            fv_df = pd.DataFrame(fv, columns=self.feature_names)
             fv_scaled = self.scaler.transform(fv_df)
-        else:
-            fv_scaled = fv_df.values
 
+            # Save scaled features to CSV
+            df_scaled = pd.DataFrame(fv_scaled, columns=self.feature_names)
+            df_scaled.to_csv(self.output_csv, mode='a', header=False, index=False)
+        else:
+            fv_scaled = fv
 
         # -------------------------
         # MODEL PREDICTION
         # -------------------------
         try:
-            reconstructed = self.model.predict(fv_scaled, verbose=0)
+            if isinstance(self.model, xgb.Booster):
+                dmatrix = xgb.DMatrix(fv_scaled, feature_names=self.feature_names)
+                pred = self.model.predict(dmatrix)
+            else:
+                pred = self.model.predict(fv_scaled)
         except Exception as e:
             print("❌ MODEL PREDICT ERROR:", e)
-            return {"reconstruction_error": 999999, "label": "anomaly"}
+            return {"prediction": None}
 
-        mse_per_feature = np.square(fv_scaled - reconstructed)
-        mse = np.mean(mse_per_feature)
-        label = "normal" if mse < 0.01 else "anomaly"
-
-        return {"reconstruction_error": float(mse), "label": label}
+        return {"prediction": pred}
