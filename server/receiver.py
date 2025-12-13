@@ -145,7 +145,7 @@ def handle_conn(conn, addr, model_runner):
 def start_server():
     print("[Receiver] Loading model...")
     model_runner = ModelRunner(
-        model_path="models/autoencoder.h5",
+        model_path="models/XGBoost_model.h5",
         scaler_path="models/scaler.save"
     )
 
