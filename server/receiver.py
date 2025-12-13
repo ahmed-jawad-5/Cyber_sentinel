@@ -53,16 +53,34 @@ def save_features_only(ordered_features):
 # Update a specific CSV row with prediction
 # ---------------------------------------------------------
 def update_prediction(row_index, error, label):
-    with open(CSV_PATH, "r") as f:
-        rows = list(csv.reader(f))
+    with csv_lock:
+        with open(CSV_PATH, "r") as f:
+            rows = list(csv.reader(f))
 
-    # Update specific row
-    rows[row_index + 1][-2] = str(error) # this is the mse 
-    rows[row_index + 1][-1] = str(label) # this is basicallly the prediction 
+        target_row = row_index + 1  # account for header
 
-    with open(CSV_PATH, "w", newline="") as f:
-        wr = csv.writer(f)
-        wr.writerows(rows)
+        # ---- SAFETY CHECKS ----
+        if target_row >= len(rows):
+            print(
+                f"[CSV ERROR] Cannot update row {target_row}. "
+                f"CSV has only {len(rows)} rows."
+            )
+            return
+
+        if len(rows[target_row]) < 2:
+            print(
+                f"[CSV ERROR] Malformed row {target_row}: "
+                f"{rows[target_row]}"
+            )
+            return
+
+        rows[target_row][-2] = str(error)
+        rows[target_row][-1] = str(label)
+
+        with open(CSV_PATH, "w", newline="") as f:
+            wr = csv.writer(f)
+            wr.writerows(rows)
+
 
 
 # ---------------------------------------------------------
@@ -144,32 +162,12 @@ def handle_conn(conn, addr, model_runner):
         # -------------------------------------------------
         # Update CSV with prediction
         # -------------------------------------------------
-        def update_prediction(row_index, error, label):
-            with open(CSV_PATH, "r") as f:
-                rows = list(csv.reader(f))
+        update_prediction(
+            row_index,
+            result["reconstruction_error"],
+            result["label"]
+        )
 
-            # Safety checks
-            target_row = row_index + 1  # account for header
-
-            if target_row >= len(rows):
-                print(
-                    f"[CSV ERROR] Cannot update row {target_row}. "
-                    f"CSV has only {len(rows)} rows."
-                )
-                return
-
-            if len(rows[target_row]) < 2:
-                print(
-                    f"[CSV ERROR] Row {target_row} malformed: {rows[target_row]}"
-                )
-                return
-
-            rows[target_row][-2] = str(error)
-            rows[target_row][-1] = str(label)
-
-            with open(CSV_PATH, "w", newline="") as f:
-                wr = csv.writer(f)
-                wr.writerows(rows)
 
     except json.JSONDecodeError as e:
         print(f"[ERROR] Invalid JSON from {addr}: {e}")
