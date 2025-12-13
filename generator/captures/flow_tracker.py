@@ -78,10 +78,13 @@ def process_packet(pkt):
             # unusual; treat as s
             direction = 's'
 
-        payload_len = len(bytes(pkt.payload)) - len(bytes(ip.payload.payload)) + len(bytes(pkt.payload.payload)) if False else len(bytes(pkt.payload))
-        # use simple length:
-        l = len(pkt)
-        f["payload_lens"].append(l)
+        if TCP in pkt:
+            payload_len = len(bytes(pkt[TCP].payload))
+        else:
+            payload_len = 0
+
+        f["payload_lens"].append(payload_len)
+
         f["timestamps"].append((t, direction))
 
         if direction == 's':

@@ -2,6 +2,7 @@
 import statistics
 from collections import OrderedDict
 from .feature_schema import FEATURE_ORDER, validate_and_fill
+import math
 
 def _mean_or_zero(lst):
     try:
@@ -46,10 +47,12 @@ def flow_to_features(f):
     src, dst, sport, dport, proto = key
 
     # 1. dur: duration of flow (last_seen - first_seen)
+    MIN_DUR = 1e-3  # 1 ms minimum
     first = float(f.get("first_seen") or 0.0)
     last = float(f.get("last_seen") or first)
-    dur = max(0.0, last - first)
+    dur = max(MIN_DUR, last - first)  # FIX
     features["dur"] = dur
+
 
     # 2/3. sbytes, dbytes
     sbytes = int(f.get("sbytes", 0) or 0)
@@ -58,12 +61,8 @@ def flow_to_features(f):
     features["dbytes"] = dbytes
 
     # 4. Sload (bytes/sec) - guard against tiny durations and cap outliers
-    Sload = float(sbytes) / max(1e-6, dur)
-    # clamp to reasonable max to avoid blowing up model (adjust if needed)
-    if Sload != Sload:  # NaN guard
-        Sload = 0.0
-    Sload = min(Sload, 1e8)
-    features["Sload"] = Sload
+    raw_Sload = float(sbytes) / dur
+    features["Sload"] = math.log1p(raw_Sload) 
 
     # 5. swin (mean source TCP window)
     features["swin"] = int(_mean_or_zero(f.get("s_windows", [])))
@@ -73,7 +72,11 @@ def flow_to_features(f):
     features["stcpb"] = int(s_seq[0]) if len(s_seq) > 0 else 0
 
     # 7. smeansz: mean source payload size (use payload_lens collected)
-    features["smeansz"] = _mean_or_zero(f.get("payload_lens", []))
+    MAX_PAYLOAD = 1500  # MTU-like cap
+    sizes = f.get("payload_lens", [])
+    sizes = [min(x, MAX_PAYLOAD) for x in sizes]  # cap large payloads
+    features["smeansz"] = math.log1p(_mean_or_zero(sizes))  # FIX
+
 
     # 8. Sjit: jitter for source direction
     timestamps = f.get("timestamps", [])
@@ -83,11 +86,12 @@ def flow_to_features(f):
     features["Djit"] = float(_compute_jitter(timestamps, 'd'))
 
     # 10. Stime: use flow start time relative to epoch (float seconds)
-    # Note: If your model expects something else, change accordingly.
-    features["Stime"] = float(first)
+    features["Stime"] = math.log1p(dur)  
 
     # 11. Sintpkt: mean inter-arrival time for source direction
-    features["Sintpkt"], _ = _compute_interarrivals(timestamps, 's')
+    Sintpkt, _ = _compute_interarrivals(timestamps, 's')
+    features["Sintpkt"] = math.log1p(max(Sintpkt, 1e-4))  # FIX
+
 
     # 12. tcprtt: ack_time - syn_time (safe)
     syn_time = f.get("syn_time") or 0.0
