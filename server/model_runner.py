@@ -4,11 +4,11 @@ import os
 import numpy as np
 import pandas as pd
 from keras.models import load_model
+import pickle
 import joblib
-
 class ModelRunner:
     def __init__(self,
-                 model_path="./models/autoencoder.h5",
+                 model_path="./models/XGBoost_model.pkl",
                  scaler_path="./models/scaler.save",
                  output_csv="./scaled_features.csv"):
 
@@ -16,7 +16,8 @@ class ModelRunner:
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Autoencoder not found at: {model_path}")
 
-        self.model = load_model(model_path, compile=False)
+        with open(model_path, 'rb') as model_path:
+            self.model = pickle.load(model_path)
         print("[ModelRunner] Autoencoder loaded successfully.")
 
         if os.path.exists(scaler_path):
@@ -43,22 +44,22 @@ class ModelRunner:
         # Convert input to DataFrame
         fv_df = pd.DataFrame(fv, columns=self.feature_names)
         # Apply Min-Max scaling to 0-1 per column
-        fv_mean = fv_df.mean()
-        fv_std = fv_df.std(ddof=0)  # population std
-        fv_scaled_once = (fv_df - fv_mean) / (fv_std + 1e-6)
+        # fv_mean = fv_df.mean()
+        # fv_std = fv_df.std(ddof=0)  # population std
+        # fv_scaled_once = (fv_df - fv_mean) / (fv_std + 1e-6)
 
-        # -------------------------
-        # Save first-scaled features to CSV
-        # -------------------------
-        fv_scaled_once.to_csv(self.output_csv, mode='a', header=False, index=False)
+        # # -------------------------
+        # # Save first-scaled features to CSV
+        # # -------------------------
+        # fv_scaled_once.to_csv(self.output_csv, mode='a', header=False, index=False)
 
         # -------------------------
         # SECOND SCALING: apply loaded scaler.save
         # -------------------------
         if self.scaler is not None:
-            fv_scaled = self.scaler.transform(fv_scaled_once)
+            fv_scaled = self.scaler.transform(fv_df)
         else:
-            fv_scaled = fv_scaled_once.values
+            fv_scaled = fv_df.values
 
 
         # -------------------------
