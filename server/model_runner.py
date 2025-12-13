@@ -12,7 +12,7 @@ class ModelRunner:
                  model_path="./models/XGBoost_model.pkl",
                  scaler_path="./models/scaler.save",
                  output_csv="./scaled_features.csv",
-                 threshold=0.5):
+                 threshold=0.15):
         self.output_csv = output_csv
         self.threshold = threshold
 

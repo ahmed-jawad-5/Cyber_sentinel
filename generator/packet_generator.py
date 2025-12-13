@@ -243,14 +243,61 @@ def make_worms_attack():
 # =================================================================
 # Main Generator: ~10% per attack type, remaining Normal (if any)
 # =================================================================
+# =================================================================
+# Main Generator: 50% Normal, 50% Anomalous traffic
+# =================================================================
 def generate_traffic(total_flows=100):
+    print(f"Starting traffic generation → {TARGET_IP}:{TARGET_PORT}")
+    print("Traffic mix: 50% normal, 50% anomaly\n")
+
+    # List of anomaly generators
+    anomaly_generators = [
+        make_dos_attack,
+        make_fuzzers_attack,
+        make_generic_attack,
+        make_exploits_attack,
+        make_reconnaissance_attack,
+        make_backdoors_attack,
+        make_analysis_flow,
+        make_shellcode_attack,
+        make_worms_attack,
+    ]
+
+    for i in range(1, total_flows + 1):
+        if i <= total_flows // 2:
+            # First half → normal traffic
+            pkts, label = make_normal_flow()
+        else:
+            # Second half → anomalous traffic (random attack type)
+            generator = random.choice(anomaly_generators)
+            pkts, label = generator()
+
+        if i % 5 == 0:
+            print(f"[Flow {i}] Type: {label.upper()} ({len(pkts)} packets)")
+
+        # Send all packets
+        for p in pkts:
+            send(p, iface=INTERFACE, verbose=False)
+            time.sleep(0.03)  # inter-packet delay
+
+        # Delay before next flow
+        time.sleep(random.uniform(0.5, 3.0))
+
+    print("\nFinished traffic generation! 50% normal, 50% anomaly.")
+
+
+# =================================================================
+if __name__ == "__main__":
+    random.seed(123)  # reproducible
+    generate_traffic(total_flows=150)   # generates 75 normal + 75 anomaly flows
+
     print(f"Starting NORMAL traffic generation → {TARGET_IP}:{TARGET_PORT}")
     print("Traffic mix: 100% normal flows\n")
 
     for i in range(1, total_flows + 1):
 
         # Always generate a normal flow
-        pkts, label = make_dos_attack()
+        pkts, label = make_generic_attack()
 
         if i % 10 == 0:
             print(f"[{i}] normal flow ({len(pkts)} packets)")
