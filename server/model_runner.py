@@ -9,121 +9,124 @@ import xgboost as xgb
 
 class ModelRunner:
     """
-    Loads XGBoost multi-class model + scaler.
-    Provides a predict method returning class label and probabilities.
+    Handles multi-class prediction using XGBoost and scales input features.
+    Adds a minimum threshold for 'normal' class detection.
     """
+
     def __init__(self,
                  model_path="./models/XGBoost_model.pkl",
                  scaler_path="./models/scaler.save",
                  output_csv="./scaled_features.csv",
-                 label_mapping=None):
+                 normal_threshold=0.15):
         self.output_csv = output_csv
-        self.label_mapping = label_mapping or {
+        self.normal_threshold = normal_threshold
+
+        # Label mapping (multi-class)
+        self.label_mapping = {
             0: "analysis", 1: "backdoor", 2: "backdoors", 3: "dos",
             4: "exploits", 5: "fuzzers", 6: "generic", 7: "normal",
             8: "reconnaissance", 9: "shellcode", 10: "worms"
         }
+        self.normal_index = 7  # Index of 'normal' in mapping
 
-        print("[ModelRunner] Initializing...")
-        self.model = None
-        self.scaler = None
-        self.feature_names = None
+        print("[ModelRunner] Loading XGBoost model + Scaler...")
 
-        # -------------------------
-        # Load XGBoost model
-        # -------------------------
+        # Load model
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Model not found at: {model_path}")
 
         with open(model_path, 'rb') as f:
             try:
                 self.model = pickle.load(f)
-                print("[ModelRunner] Model loaded successfully.")
             except Exception as e:
-                raise RuntimeError(f"[ModelRunner] Failed to load model: {e}")
+                raise RuntimeError(f"Failed to load model: {e}")
 
-        # -------------------------
-        # Load scaler if exists
-        # -------------------------
+        print("[ModelRunner] Model loaded successfully.")
+
+        # Load scaler
         if os.path.exists(scaler_path):
-            try:
-                self.scaler = joblib.load(scaler_path)
-                self.feature_names = list(self.scaler.feature_names_in_)
-                print("[ModelRunner] Scaler loaded successfully.")
-            except Exception as e:
-                print(f"[ModelRunner WARNING] Failed to load scaler: {e}")
-                self.scaler = None
+            self.scaler = joblib.load(scaler_path)
+            self.feature_names = list(self.scaler.feature_names_in_)
+            print("[ModelRunner] Scaler loaded.")
+            print("[ModelRunner] Scaler feature order:", self.feature_names)
         else:
-            print("[ModelRunner WARNING] Scaler not found, running without scaling.")
+            self.scaler = None
+            self.feature_names = None
+            print("[ModelRunner] Warning: scaler not found, running WITHOUT scaling!")
 
-        # -------------------------
-        # Initialize output CSV for scaled features
-        # -------------------------
-        if self.feature_names and not os.path.exists(self.output_csv):
+        # Initialize CSV for scaled features
+        if not os.path.exists(self.output_csv):
             df_init = pd.DataFrame(columns=self.feature_names)
             df_init.to_csv(self.output_csv, index=False)
 
-        print("[ModelRunner] Ready for predictions.\n")
-
     # ----------------------------------------------------------------------
+
     def predict(self, feature_vector):
         """
-        feature_vector: list of features in the correct order
-        Returns dict:
-            - predicted_label: str
-            - prediction_probs: dict of class probabilities
+        feature_vector: list of 18 features in the order of scaler.feature_names_in_
+        Returns dict with:
+          - prediction (max probability value)
+          - label (multi-class label string)
+          - all_probs (list of class probabilities)
         """
-        try:
-            fv = np.array(feature_vector, dtype=float).reshape(1, -1)
 
-            # Scale if scaler exists
-            if self.scaler:
-                fv_df = pd.DataFrame(fv, columns=self.feature_names)
+        fv = np.array(feature_vector, dtype=float).reshape(1, -1)
+
+        # SCALE FEATURES
+        if self.scaler is not None:
+            fv_df = pd.DataFrame(fv, columns=self.feature_names)
+            try:
                 fv_scaled = self.scaler.transform(fv_df)
-            else:
+            except Exception as e:
+                print("[SCALER ERROR] Could not scale input:", e)
                 fv_scaled = fv
+        else:
+            fv_scaled = fv
 
-            # Save scaled features
-            if self.feature_names:
-                df_scaled = pd.DataFrame(fv_scaled, columns=self.feature_names)
-                df_scaled.to_csv(self.output_csv, mode='a', header=False, index=False)
-
-            # -------------------------
-            # Multi-class prediction
-            # -------------------------
-            if hasattr(self.model, "predict_proba"):
-                probs = self.model.predict_proba(fv_scaled)[0]
-                pred_class = int(np.argmax(probs))
-            else:
-                # raw Booster
-                dmatrix = xgb.DMatrix(fv_scaled, feature_names=self.feature_names)
-                raw_preds = self.model.predict(dmatrix)
-                if raw_preds.ndim == 1:
-                    # binary output fallback
-                    pred_class = int(raw_preds[0] > 0.5)
-                    probs = [1 - raw_preds[0], raw_preds[0]]
-                else:
-                    pred_class = int(np.argmax(raw_preds))
-                    probs = raw_preds[0]
-
-            label = self.label_mapping.get(pred_class, f"class_{pred_class}")
-            prediction_probs = {self.label_mapping[i]: float(probs[i]) for i in range(len(probs))}
-
-            # Debug
-            print("[ModelRunner] Prediction debug:")
-            print("Feature vector:", feature_vector)
-            print("Predicted class:", pred_class, "Label:", label)
-            print("Probabilities:", prediction_probs)
-            print("--------------------------------------------------\n")
-
-            return {
-                "predicted_label": label,
-                "prediction_probs": prediction_probs
-            }
-
+        # Save scaled features
+        try:
+            df_scaled = pd.DataFrame(fv_scaled, columns=self.feature_names)
+            df_scaled.to_csv(self.output_csv, mode='a', header=False, index=False)
         except Exception as e:
-            print("[ModelRunner ERROR] Prediction failed:", e)
-            return {
-                "predicted_label": "error",
-                "prediction_probs": {}
-            }
+            print("[CSV ERROR] Could not save scaled features:", e)
+
+        # -------------------------
+        # MULTI-CLASS PREDICTION
+        # -------------------------
+        try:
+            if hasattr(self.model, "predict_proba"):
+                pred_probs = self.model.predict_proba(fv_scaled)
+                probs = pred_probs[0]  # probability for each class
+            else:
+                # raw XGBoost Booster
+                dmatrix = xgb.DMatrix(fv_scaled, feature_names=self.feature_names)
+                raw_pred = self.model.predict(dmatrix)
+                exp_preds = np.exp(raw_pred)
+                probs = exp_preds / np.sum(exp_preds)  # softmax normalization
+        except Exception as e:
+            print("[MODEL PREDICT ERROR]:", e)
+            probs = np.zeros(len(self.label_mapping))
+
+        # Determine predicted label with normal threshold
+        max_index = int(np.argmax(probs))
+        if probs[self.normal_index] >= self.normal_threshold:
+            label = "normal"
+            pred_val = probs[self.normal_index]
+        else:
+            label = self.label_mapping[max_index]
+            pred_val = probs[max_index]
+
+        # DEBUG
+        print("\n[ModelRunner] Prediction debug:")
+        print("Feature vector:", feature_vector)
+        print("Scaled vector:", fv_scaled.tolist())
+        print("Class probabilities:", probs.tolist())
+        print("Predicted label:", label)
+        print("Prediction value:", pred_val)
+        print("--------------------------------------------------\n")
+
+        return {
+            "prediction": pred_val,
+            "label": label,
+            "all_probs": probs.tolist()
+        }
