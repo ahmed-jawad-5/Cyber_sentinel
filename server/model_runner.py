@@ -2,8 +2,8 @@
 
 import os
 import numpy as np
-from keras.models import load_model
 import pandas as pd
+from keras.models import load_model
 import joblib
 
 
@@ -13,12 +13,11 @@ class ModelRunner:
                  scaler_path="./models/scaler.save"):
 
         print("[ModelRunner] Loading Autoencoder + Scaler...")
-        
 
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Autoencoder not found at: {model_path}")
 
-        # Load AE WITHOUT compiling
+        # Load autoencoder WITHOUT compiling
         self.model = load_model(model_path, compile=False)
         print("[ModelRunner] Autoencoder loaded successfully.")
 
@@ -30,6 +29,7 @@ class ModelRunner:
             print("[ModelRunner] Scaler feature order:", self.feature_names)
         else:
             self.scaler = None
+            self.feature_names = None
             print("[ModelRunner] Warning: scaler not found, running WITHOUT scaling!")
 
     # ----------------------------------------------------------------------
@@ -53,22 +53,21 @@ class ModelRunner:
             print("⚠️ WARNING: fv contains INF values!")
 
         # -------------------------
-        # SCALE
+        # SCALE (CORRECT & SAFE)
         # -------------------------
         if self.scaler is not None:
             try:
-                fv_scaled = self.scaler.transform(fv)
-                print("[DEBUG] fv shape AFTER scaling:", fv_scaled.shape)
-                print("[DEBUG] fv values AFTER scaling:", fv_scaled)
-            except Exception as e:
-                print("[SCALER ERROR] Could not scale input:", e)
                 fv_df = pd.DataFrame(fv, columns=self.feature_names)
                 fv_scaled = self.scaler.transform(fv_df)
 
-        else:
-            fv_df = pd.DataFrame(fv, columns=self.feature_names)
-            fv_scaled = self.scaler.transform(fv_df)
+                print("[DEBUG] fv shape AFTER scaling:", fv_scaled.shape)
+                print("[DEBUG] fv values AFTER scaling:", fv_scaled)
 
+            except Exception as e:
+                print("[SCALER ERROR] Could not scale input:", e)
+                fv_scaled = fv
+        else:
+            fv_scaled = fv
 
         # -------------------------
         # MODEL PREDICTION
