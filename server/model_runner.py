@@ -35,14 +35,12 @@ class ModelRunner:
     # ----------------------------------------------------------------------
 
     def predict(self, feature_vector):
-
         print("\n==================== PREDICTION DEBUG ====================")
         print("[DEBUG] Raw incoming feature_vector:")
         print(feature_vector)
         print("[DEBUG] Length:", len(feature_vector))
 
         fv = np.array(feature_vector, dtype=float).reshape(1, -1)
-
         print("[DEBUG] fv shape BEFORE scaling:", fv.shape)
         print("[DEBUG] fv values BEFORE scaling:", fv)
 
@@ -57,17 +55,20 @@ class ModelRunner:
         # -------------------------
         if self.scaler is not None:
             try:
+                # Ensure feature vector length matches scaler
+                assert fv.shape[1] == len(self.feature_names), \
+                    f"Feature vector length {fv.shape[1]} != scaler features {len(self.feature_names)}"
+
                 fv_df = pd.DataFrame(fv, columns=self.feature_names)
                 fv_scaled = self.scaler.transform(fv_df)
 
-                print("[DEBUG] fv shape AFTER scaling:", fv_scaled.shape)
-                print("[DEBUG] fv values AFTER scaling:", fv_scaled)
+                # Print scaled features clearly
+                print("[DEBUG] Scaled features:")
+                for name, val in zip(self.feature_names, fv_scaled[0]):
+                    print(f"  {name}: {val}")
 
-                # -------------------------
-                # FEATURE LEVEL CHECKS
-                # -------------------------
-                z_scores = (fv_scaled[0] - 0)  # already standardized (mean=0)
-                large_indices = np.where(np.abs(z_scores) > 10)[0]
+                # Optional extreme feature check
+                large_indices = np.where(np.abs(fv_scaled[0]) > 10)[0]
                 if len(large_indices) > 0:
                     print("⚠️ WARNING: Features with extreme values after scaling (>10 std):")
                     for idx in large_indices:
@@ -94,19 +95,29 @@ class ModelRunner:
         print("[DEBUG] reconstructed shape:", reconstructed.shape)
         print("[DEBUG] reconstructed values:", reconstructed)
 
+        # -------------------------
+        # COMPUTE MSE
+        # -------------------------
         mse_per_feature = np.square(fv_scaled - reconstructed)
         mse = np.mean(mse_per_feature)
         print("[DEBUG] Reconstruction MSE:", mse)
 
-        # -------------------------
-        # FEATURE LEVEL MSE
-        # -------------------------
+        # Features contributing high MSE
         high_mse_indices = np.where(mse_per_feature[0] > 0.5)[0]
         if len(high_mse_indices) > 0:
             print("⚠️ WARNING: Features contributing high MSE (>0.5):")
             for idx in high_mse_indices:
                 print(f"  - {self.feature_names[idx]}: {mse_per_feature[0][idx]}")
 
+        # Sorted per-feature MSE (descending)
+        sorted_idx = np.argsort(-mse_per_feature[0])
+        print("[DEBUG] Features sorted by per-feature MSE:")
+        for idx in sorted_idx:
+            print(f"  {self.feature_names[idx]}: {mse_per_feature[0][idx]}")
+
+        # -------------------------
+        # LABEL DECISION
+        # -------------------------
         threshold = 0.01
         label = "normal" if mse < threshold else "anomaly"
 

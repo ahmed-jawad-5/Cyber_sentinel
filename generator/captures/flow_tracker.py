@@ -75,37 +75,34 @@ def process_packet(pkt):
         elif ip.src == dst and ip.dst == src:
             direction = 'd'
         else:
-            # unusual; treat as s
             direction = 's'
 
-        if TCP in pkt:
-            payload_len = len(bytes(pkt[TCP].payload))
-        else:
-            payload_len = 0
+        # Total packet length (for byte counters)
+        pkt_len = len(pkt)
 
+        # TCP payload length (for smeansz)
+        payload_len = len(pkt[TCP].payload) if TCP in pkt else 0
         f["payload_lens"].append(payload_len)
-
         f["timestamps"].append((t, direction))
 
         if direction == 's':
-            f["sbytes"] += l
+            f["sbytes"] += pkt_len
             if TCP in pkt:
                 f["s_windows"].append(pkt[TCP].window)
                 f["s_seq"].append(pkt[TCP].seq)
                 flags = pkt[TCP].flags
                 f["seen_flags"][str(flags)] += 1
-                # handshake detection
                 if flags & 0x02:  # SYN
                     f["syn_time"] = f["syn_time"] or t
             f["s_ttls"].append(ip.ttl)
         else:
-            f["dbytes"] += l
+            f["dbytes"] += pkt_len
             if TCP in pkt:
                 f["d_windows"].append(pkt[TCP].window)
                 f["d_seq"].append(pkt[TCP].seq)
                 flags = pkt[TCP].flags
                 f["seen_flags"][str(flags)] += 1
-                if flags & 0x12:  # SYN+ACK (0x10=ACK,0x02=SYN -> 0x12)
+                if flags & 0x12:  # SYN+ACK
                     f["synack_time"] = f["synack_time"] or t
                 if flags & 0x10:  # ACK
                     f["ack_time"] = f["ack_time"] or t
@@ -118,19 +115,15 @@ def process_packet(pkt):
             f["service_ports"].add(dport)
 
 def _expire_flow(key):
-    """Handle expiration: compute features and remove flow from flows dict."""
     with flows_lock:
         f = flows.pop(key, None)
     if not f:
         return
     features = flow_to_features(f)
     ordered = validate_and_fill(features)
-    # For demo we will print; in real setup we push to client queue
     print("Completed flow -> features:")
     for k,v in ordered.items():
         print(f" {k}: {v}")
-    # append to outbound queue for client to send (optional)
-    # send_to_client(ordered)
 
 def _cleanup_loop():
     while True:
@@ -150,6 +143,5 @@ def start_sniff(iface=None, filter=None):
     sniff(iface=iface, prn=process_packet, store=False, filter=filter)
 
 if __name__ == "__main__":
-    # Example: start sniffing on default interface. Run as root.
     print("Starting flow tracker (sniffing)...")
     start_sniff()
