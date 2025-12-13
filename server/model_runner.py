@@ -12,7 +12,8 @@ class ModelRunner:
                  model_path="./models/XGBoost_model.pkl",
                  scaler_path="./models/scaler.save",
                  output_csv="./scaled_features.csv",
-                 threshold=0.15):
+                 threshold=0.15,
+                 class_mapping = None):
         self.output_csv = output_csv
         self.threshold = threshold
 
@@ -47,68 +48,26 @@ class ModelRunner:
             df_init.to_csv(self.output_csv, index=False)
 
     # ----------------------------------------------------------------------
+def predict(self, feature_vector):
+    fv = np.array(feature_vector).reshape(1, -1)
+    
+    # scale features
+    if self.scaler:
+        fv_df = pd.DataFrame(fv, columns=self.feature_names)
+        fv = self.scaler.transform(fv_df)
 
-    def predict(self, feature_vector):
-        """
-        feature_vector: list of 18 features in the order of scaler.feature_names_in_
-        Returns dict with:
-          - prediction (float probability of anomaly)
-          - label ('normal'/'anomaly')
-        """
+    # predict probabilities
+    dmatrix = xgb.DMatrix(fv, feature_names=self.feature_names)
+    probs = self.model.predict(dmatrix)  # shape = [1, 11]
 
-        fv = np.array(feature_vector, dtype=float).reshape(1, -1)
+    # predicted class index
+    class_idx = int(np.argmax(probs, axis=1)[0])
 
-        # -------------------------
-        # SCALE FEATURES
-        # -------------------------
-        if self.scaler is not None:
-            fv_df = pd.DataFrame(fv, columns=self.feature_names)
-            try:
-                fv_scaled = self.scaler.transform(fv_df)
-            except Exception as e:
-                print("[SCALER ERROR] Could not scale input:", e)
-                fv_scaled = fv
-        else:
-            fv_scaled = fv
+    # map to string label
+    label = self.class_mapping[class_idx] if self.class_mapping else str(class_idx)
 
-        # Save scaled features to CSV
-        try:
-            df_scaled = pd.DataFrame(fv_scaled, columns=self.feature_names)
-            df_scaled.to_csv(self.output_csv, mode='a', header=False, index=False)
-        except Exception as e:
-            print("[CSV ERROR] Could not save scaled features:", e)
+    return {
+        "prediction_probs": probs.tolist()[0],  # list of 11 probabilities
+        "label": label
+    }
 
-        # -------------------------
-        # PREDICTION
-        # -------------------------
-        try:
-            if hasattr(self.model, "predict_proba"):
-                # scikit-learn wrapper: get probability
-                pred_probs = self.model.predict_proba(fv_scaled)
-                pred_val = float(pred_probs[0][1])  # probability of class 1 (anomaly)
-            else:
-                # raw Booster: predict returns logits, apply sigmoid
-                dmatrix = xgb.DMatrix(fv_scaled, feature_names=self.feature_names)
-                raw_pred = float(self.model.predict(dmatrix)[0])
-                pred_val = 1 / (1 + np.exp(-raw_pred))  # sigmoid normalization
-
-            # Decide label using threshold
-            label = "normal" if pred_val < self.threshold else "anomaly"
-
-        except Exception as e:
-            print("[MODEL PREDICT ERROR]:", e)
-            pred_val = 999999.0
-            label = "anomaly"
-
-        # Debug print
-        print("\n[ModelRunner] Prediction debug:")
-        print("Feature vector:", feature_vector)
-        print("Scaled vector:", fv_scaled.tolist())
-        print("Prediction value:", pred_val)
-        print("Label:", label)
-        print("--------------------------------------------------\n")
-
-        return {
-            "prediction": pred_val,
-            "label": label
-        }

@@ -100,8 +100,9 @@ def handle_conn(conn, addr, model_runner):
         # Predict first
         # -----------------------------
         result = model_runner.predict(fv)
-        value = result["prediction"]
-        label = result["label"]  # lowercase 'label' in ModelRunner
+        label = result['label']
+        probs = result['prediction_probs']  # list of 11 probabilities
+
 
         print(f"[{addr}] Prediction: {label.upper()} (value={value:.6f})")
 
@@ -109,14 +110,9 @@ def handle_conn(conn, addr, model_runner):
         # Save features + prediction atomically
         # -----------------------------
         with csv_lock:
-            row = list(ordered.values()) + [value, label]
-            write_header = not os.path.exists(CSV_PATH)
             with open(CSV_PATH, "a", newline="") as f:
-                writer = csv.writer(f)
-                if write_header:
-                    header = list(ordered.keys()) + ["reconstruction_error", "label"]
-                    writer.writerow(header)
-                writer.writerow(row)
+                wr = csv.writer(f)
+                wr.writerow(list(ordered.values()) + [label] + probs)
 
     except json.JSONDecodeError as e:
         print(f"[ERROR] Invalid JSON from {addr}: {e}")
@@ -133,15 +129,29 @@ def handle_conn(conn, addr, model_runner):
 # ---------------------------------------------------------
 def start_server():
     print("[Receiver] Loading model...")
+    CLASS_MAPPING = {
+    0: "analysis", 1: "backdoor", 2: "backdoors", 3: "dos",
+    4: "exploits", 5: "fuzzers", 6: "generic", 7: "normal",
+    8: "reconnaissance", 9: "shellcode", 10: "worms"
+    }
+
     model_runner = ModelRunner(
         model_path="models/XGBoost_model.pkl",
-        scaler_path="models/scaler.save"
+        scaler_path="models/scaler.save",
+        class_mapping=CLASS_MAPPING
     )
 
+
     # Build CSV header dynamically
+ # Build CSV header dynamically
     sample_order = validate_and_fill({})  # empty -> defaults
-    header = list(sample_order.keys()) + ["reconstruction_error", "label"]
+    header = list(sample_order.keys()) + ["predicted_label"] + [
+        "prob_analysis", "prob_backdoor", "prob_backdoors", "prob_dos", "prob_exploits",
+        "prob_fuzzers", "prob_generic", "prob_normal", "prob_reconnaissance",
+        "prob_shellcode", "prob_worms"
+    ]
     init_csv(header)
+
 
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
