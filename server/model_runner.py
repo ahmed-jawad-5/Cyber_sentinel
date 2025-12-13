@@ -5,12 +5,13 @@ import numpy as np
 import pandas as pd
 from keras.models import load_model
 import joblib
-
+from datetime import datetime
 
 class ModelRunner:
     def __init__(self,
                  model_path="./models/autoencoder.h5",
-                 scaler_path="./models/scaler.save"):
+                 scaler_path="./models/scaler.save",
+                 scaled_csv_path="./logs/scaled_features.csv"):
 
         print("[ModelRunner] Loading Autoencoder + Scaler...")
 
@@ -32,6 +33,15 @@ class ModelRunner:
             self.feature_names = None
             print("[ModelRunner] Warning: scaler not found, running WITHOUT scaling!")
 
+        # CSV path for scaled features
+        self.scaled_csv_path = scaled_csv_path
+        os.makedirs(os.path.dirname(scaled_csv_path), exist_ok=True)
+        # Initialize CSV with headers if file does not exist
+        if not os.path.exists(self.scaled_csv_path) and self.feature_names:
+            df_init = pd.DataFrame(columns=["timestamp"] + self.feature_names)
+            df_init.to_csv(self.scaled_csv_path, index=False)
+            print(f"[ModelRunner] Created CSV for scaled features at {self.scaled_csv_path}")
+
     # ----------------------------------------------------------------------
 
     def predict(self, feature_vector):
@@ -41,38 +51,23 @@ class ModelRunner:
         print("[DEBUG] Length:", len(feature_vector))
 
         fv = np.array(feature_vector, dtype=float).reshape(1, -1)
-        print("[DEBUG] fv shape BEFORE scaling:", fv.shape)
-        print("[DEBUG] fv values BEFORE scaling:", fv)
-
-        # Check for NaN / INF
-        if np.isnan(fv).any():
-            print("⚠️ WARNING: fv contains NaN values!")
-        if np.isinf(fv).any():
-            print("⚠️ WARNING: fv contains INF values!")
 
         # -------------------------
         # SCALE (CORRECT & SAFE)
         # -------------------------
         if self.scaler is not None:
             try:
-                # Ensure feature vector length matches scaler
                 assert fv.shape[1] == len(self.feature_names), \
                     f"Feature vector length {fv.shape[1]} != scaler features {len(self.feature_names)}"
-
                 fv_df = pd.DataFrame(fv, columns=self.feature_names)
                 fv_scaled = self.scaler.transform(fv_df)
 
-                # Print scaled features clearly
-                print("[DEBUG] Scaled features:")
-                for name, val in zip(self.feature_names, fv_scaled[0]):
-                    print(f"  {name}: {val}")
-
-                # Optional extreme feature check
-                large_indices = np.where(np.abs(fv_scaled[0]) > 10)[0]
-                if len(large_indices) > 0:
-                    print("⚠️ WARNING: Features with extreme values after scaling (>10 std):")
-                    for idx in large_indices:
-                        print(f"  - {self.feature_names[idx]}: {fv_scaled[0][idx]}")
+                # Append scaled features to CSV
+                timestamp = datetime.now().isoformat()
+                row_df = pd.DataFrame([fv_scaled[0]], columns=self.feature_names)
+                row_df.insert(0, "timestamp", timestamp)
+                row_df.to_csv(self.scaled_csv_path, mode="a", header=False, index=False)
+                print(f"[DEBUG] Scaled features saved to CSV at {self.scaled_csv_path}")
 
             except Exception as e:
                 print("[SCALER ERROR] Could not scale input:", e)
@@ -92,32 +87,18 @@ class ModelRunner:
                 "label": "anomaly"
             }
 
-        print("[DEBUG] reconstructed shape:", reconstructed.shape)
-        print("[DEBUG] reconstructed values:", reconstructed)
-
-        # -------------------------
-        # COMPUTE MSE
-        # -------------------------
         mse_per_feature = np.square(fv_scaled - reconstructed)
         mse = np.mean(mse_per_feature)
         print("[DEBUG] Reconstruction MSE:", mse)
 
         # Features contributing high MSE
-        high_mse_indices = np.where(mse_per_feature[0] > 0.5)[0]
-        if len(high_mse_indices) > 0:
-            print("⚠️ WARNING: Features contributing high MSE (>0.5):")
-            for idx in high_mse_indices:
-                print(f"  - {self.feature_names[idx]}: {mse_per_feature[0][idx]}")
+        if self.feature_names:
+            high_mse_indices = np.where(mse_per_feature[0] > 0.5)[0]
+            if len(high_mse_indices) > 0:
+                print("⚠️ WARNING: Features contributing high MSE (>0.5):")
+                for idx in high_mse_indices:
+                    print(f"  - {self.feature_names[idx]}: {mse_per_feature[0][idx]}")
 
-        # Sorted per-feature MSE (descending)
-        sorted_idx = np.argsort(-mse_per_feature[0])
-        print("[DEBUG] Features sorted by per-feature MSE:")
-        for idx in sorted_idx:
-            print(f"  {self.feature_names[idx]}: {mse_per_feature[0][idx]}")
-
-        # -------------------------
-        # LABEL DECISION
-        # -------------------------
         threshold = 0.01
         label = "normal" if mse < threshold else "anomaly"
 
