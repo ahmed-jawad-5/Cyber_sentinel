@@ -63,6 +63,16 @@ class ModelRunner:
                 print("[DEBUG] fv shape AFTER scaling:", fv_scaled.shape)
                 print("[DEBUG] fv values AFTER scaling:", fv_scaled)
 
+                # -------------------------
+                # FEATURE LEVEL CHECKS
+                # -------------------------
+                z_scores = (fv_scaled[0] - 0)  # already standardized (mean=0)
+                large_indices = np.where(np.abs(z_scores) > 10)[0]
+                if len(large_indices) > 0:
+                    print("⚠️ WARNING: Features with extreme values after scaling (>10 std):")
+                    for idx in large_indices:
+                        print(f"  - {self.feature_names[idx]}: {fv_scaled[0][idx]}")
+
             except Exception as e:
                 print("[SCALER ERROR] Could not scale input:", e)
                 fv_scaled = fv
@@ -84,8 +94,18 @@ class ModelRunner:
         print("[DEBUG] reconstructed shape:", reconstructed.shape)
         print("[DEBUG] reconstructed values:", reconstructed)
 
-        mse = np.mean(np.power(fv_scaled - reconstructed, 2))
+        mse_per_feature = np.square(fv_scaled - reconstructed)
+        mse = np.mean(mse_per_feature)
         print("[DEBUG] Reconstruction MSE:", mse)
+
+        # -------------------------
+        # FEATURE LEVEL MSE
+        # -------------------------
+        high_mse_indices = np.where(mse_per_feature[0] > 0.5)[0]
+        if len(high_mse_indices) > 0:
+            print("⚠️ WARNING: Features contributing high MSE (>0.5):")
+            for idx in high_mse_indices:
+                print(f"  - {self.feature_names[idx]}: {mse_per_feature[0][idx]}")
 
         threshold = 0.01
         label = "normal" if mse < threshold else "anomaly"
