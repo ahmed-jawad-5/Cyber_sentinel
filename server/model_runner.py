@@ -3,6 +3,7 @@
 import os
 import numpy as np
 from keras.models import load_model
+import pandas as pd
 import joblib
 
 
@@ -12,6 +13,7 @@ class ModelRunner:
                  scaler_path="./models/scaler.save"):
 
         print("[ModelRunner] Loading Autoencoder + Scaler...")
+        
 
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Autoencoder not found at: {model_path}")
@@ -23,7 +25,9 @@ class ModelRunner:
         # Load scaler
         if os.path.exists(scaler_path):
             self.scaler = joblib.load(scaler_path)
+            self.feature_names = list(self.scaler.feature_names_in_)
             print("[ModelRunner] Scaler loaded.")
+            print("[ModelRunner] Scaler feature order:", self.feature_names)
         else:
             self.scaler = None
             print("[ModelRunner] Warning: scaler not found, running WITHOUT scaling!")
@@ -58,9 +62,13 @@ class ModelRunner:
                 print("[DEBUG] fv values AFTER scaling:", fv_scaled)
             except Exception as e:
                 print("[SCALER ERROR] Could not scale input:", e)
-                fv_scaled = fv
+                fv_df = pd.DataFrame(fv, columns=self.feature_names)
+                fv_scaled = self.scaler.transform(fv_df)
+
         else:
-            fv_scaled = fv
+            fv_df = pd.DataFrame(fv, columns=self.feature_names)
+            fv_scaled = self.scaler.transform(fv_df)
+
 
         # -------------------------
         # MODEL PREDICTION
