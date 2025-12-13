@@ -12,7 +12,7 @@ import csv
 import os
 
 from generator.captures.feature_schema import validate_and_fill
-from server.model_runner import ModelRunner
+from model_runner import ModelRunner
 
 csv_lock = threading.Lock()
 
