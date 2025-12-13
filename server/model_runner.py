@@ -11,8 +11,10 @@ class ModelRunner:
     def __init__(self,
                  model_path="./models/XGBoost_model.pkl",
                  scaler_path="./models/scaler.save",
-                 output_csv="./scaled_features.csv"):
+                 output_csv="./scaled_features.csv",
+                 threshold=0.5):
         self.output_csv = output_csv
+        self.threshold = threshold
 
         print("[ModelRunner] Loading XGBoost model + Scaler...")
 
@@ -50,7 +52,7 @@ class ModelRunner:
         """
         feature_vector: list of 18 features in the order of scaler.feature_names_in_
         Returns dict with:
-          - prediction (float)
+          - prediction (float probability of anomaly)
           - label ('normal'/'anomaly')
         """
 
@@ -80,20 +82,18 @@ class ModelRunner:
         # PREDICTION
         # -------------------------
         try:
-            if isinstance(self.model, xgb.Booster):
+            if hasattr(self.model, "predict_proba"):
+                # scikit-learn wrapper: get probability
+                pred_probs = self.model.predict_proba(fv_scaled)
+                pred_val = float(pred_probs[0][1])  # probability of class 1 (anomaly)
+            else:
+                # raw Booster: predict returns logits, apply sigmoid
                 dmatrix = xgb.DMatrix(fv_scaled, feature_names=self.feature_names)
-                pred = self.model.predict(dmatrix)
-            else:
-                pred = self.model.predict(fv_scaled)
+                raw_pred = float(self.model.predict(dmatrix)[0])
+                pred_val = 1 / (1 + np.exp(-raw_pred))  # sigmoid normalization
 
-            # Extract single float value
-            if isinstance(pred, (np.ndarray, list)):
-                pred_val = float(pred[0])
-            else:
-                pred_val = float(pred)
-
-            # Decide label (binary)
-            label = "normal" if pred_val < 0.5 else "anomaly"
+            # Decide label using threshold
+            label = "normal" if pred_val < self.threshold else "anomaly"
 
         except Exception as e:
             print("[MODEL PREDICT ERROR]:", e)

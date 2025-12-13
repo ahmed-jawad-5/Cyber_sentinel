@@ -116,14 +116,9 @@ def handle_conn(conn, addr, model_runner):
 
         # Predict
         result = model_runner.predict(fv)
-        value = result.get("reconstruction_error") or result.get("value") or 0.0
-        label = result.get("label", "anomaly")
+        value = result["prediction"]
+        label = result["Label"]
         update_prediction(row_index, value, label)
-
-
-        # Ensure unified keys
-        value = result.get("reconstruction_error") or result.get("value") or 0.0
-        label = result.get("label", "anomaly")
 
         print(f"[{addr}] Prediction: {label.upper()} (value={value:.6f})")
 
