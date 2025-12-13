@@ -73,8 +73,6 @@ def update_prediction(row_index, value, label):
 def handle_conn(conn, addr, model_runner):
     try:
         data = b""
-
-        # Receive full JSON line (newline-terminated)
         while True:
             chunk = conn.recv(4096)
             if not chunk:
@@ -89,7 +87,6 @@ def handle_conn(conn, addr, model_runner):
 
         print(f"\n[DEBUG] Raw packet from {addr}: {text}")
 
-        # Parse JSON
         obj = json.loads(text)
         if len(obj) != EXPECTED_FEATURE_COUNT:
             print(f"[DISCARDED] Packet from {addr} has {len(obj)} features (expected {EXPECTED_FEATURE_COUNT})")
@@ -99,27 +96,33 @@ def handle_conn(conn, addr, model_runner):
         ordered = validate_and_fill(obj)
         fv = list(ordered.values())
 
-        print(f"[DEBUG] Ordered feature dict: {ordered}")
-        print(f"[DEBUG] Feature vector length: {len(fv)}")
-
-        # Save to CSV (features only)
-        row_index = save_features_only(ordered)
-
-        # Predict
+        # -----------------------------
+        # Predict first
+        # -----------------------------
         result = model_runner.predict(fv)
         value = result["prediction"]
-        label = result["Label"]
-        update_prediction(row_index, value, label)
+        label = result["label"]  # lowercase 'label' in ModelRunner
 
         print(f"[{addr}] Prediction: {label.upper()} (value={value:.6f})")
 
-        # Update CSV
+        # -----------------------------
+        # Save features + prediction atomically
+        # -----------------------------
+        with csv_lock:
+            row = list(ordered.values()) + [value, label]
+            write_header = not os.path.exists(CSV_PATH)
+            with open(CSV_PATH, "a", newline="") as f:
+                writer = csv.writer(f)
+                if write_header:
+                    header = list(ordered.keys()) + ["reconstruction_error", "label"]
+                    writer.writerow(header)
+                writer.writerow(row)
 
     except json.JSONDecodeError as e:
         print(f"[ERROR] Invalid JSON from {addr}: {e}")
 
     except Exception as e:
-        print("Error handling connection:", e)
+        print(f"[ERROR] Handling connection: {e}")
 
     finally:
         conn.close()
