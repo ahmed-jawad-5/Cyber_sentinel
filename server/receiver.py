@@ -38,15 +38,14 @@ def init_csv(header):
 # ---------------------------------------------------------
 def save_features_only(ordered_features):
     row = list(ordered_features.values())
-
     with csv_lock:
         with open(CSV_PATH, "a", newline="") as f:
             wr = csv.writer(f)
             wr.writerow(row + ["", ""])  # placeholders
 
-        # Return row index (excluding header)
-        with open(CSV_PATH, "r") as f:
-            return sum(1 for _ in f) - 2
+        # Return row index (zero-based, after header)
+        return sum(1 for _ in open(CSV_PATH)) - 1
+
 
 
 # ---------------------------------------------------------
@@ -57,24 +56,16 @@ def update_prediction(row_index, value, label):
         with open(CSV_PATH, "r") as f:
             rows = list(csv.reader(f))
 
-        target_row = row_index + 1  # account for header
-
-        # SAFETY CHECKS
-        if target_row >= len(rows):
-            print(f"[CSV ERROR] Cannot update row {target_row}. CSV has only {len(rows)} rows.")
+        if row_index >= len(rows):
+            print(f"[CSV ERROR] Cannot update row {row_index}. CSV has only {len(rows)} rows.")
             return
 
-        if len(rows[target_row]) < 2:
-            print(f"[CSV ERROR] Malformed row {target_row}: {rows[target_row]}")
-            return
-
-        rows[target_row][-2] = str(value)
-        rows[target_row][-1] = str(label)
+        rows[row_index][-2] = str(value)
+        rows[row_index][-1] = str(label)
 
         with open(CSV_PATH, "w", newline="") as f:
             wr = csv.writer(f)
             wr.writerows(rows)
-
 
 # ---------------------------------------------------------
 # Handle incoming packet
