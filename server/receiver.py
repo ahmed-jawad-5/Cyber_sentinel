@@ -6,7 +6,7 @@ then runs Autoencoder model and updates CSV with prediction.
 """
 EXPECTED_FEATURE_COUNT = 18
 import socket
-import threading # multi threadig ~~~>> for multi therads 
+import threading
 import json
 import csv
 import os
@@ -52,29 +52,23 @@ def save_features_only(ordered_features):
 # ---------------------------------------------------------
 # Update a specific CSV row with prediction
 # ---------------------------------------------------------
-def update_prediction(row_index, error, label):
+def update_prediction(row_index, value, label):
     with csv_lock:
         with open(CSV_PATH, "r") as f:
             rows = list(csv.reader(f))
 
         target_row = row_index + 1  # account for header
 
-        # ---- SAFETY CHECKS ----
+        # SAFETY CHECKS
         if target_row >= len(rows):
-            print(
-                f"[CSV ERROR] Cannot update row {target_row}. "
-                f"CSV has only {len(rows)} rows."
-            )
+            print(f"[CSV ERROR] Cannot update row {target_row}. CSV has only {len(rows)} rows.")
             return
 
         if len(rows[target_row]) < 2:
-            print(
-                f"[CSV ERROR] Malformed row {target_row}: "
-                f"{rows[target_row]}"
-            )
+            print(f"[CSV ERROR] Malformed row {target_row}: {rows[target_row]}")
             return
 
-        rows[target_row][-2] = str(error)
+        rows[target_row][-2] = str(value)
         rows[target_row][-1] = str(label)
 
         with open(CSV_PATH, "w", newline="") as f:
@@ -82,19 +76,14 @@ def update_prediction(row_index, error, label):
             wr.writerows(rows)
 
 
-
 # ---------------------------------------------------------
 # Handle incoming packet
 # ---------------------------------------------------------
 def handle_conn(conn, addr, model_runner):
-    EXPECTED_FEATURE_COUNT = 18
-
     try:
         data = b""
 
-        # -------------------------------------------------
         # Receive full JSON line (newline-terminated)
-        # -------------------------------------------------
         while True:
             chunk = conn.recv(4096)
             if not chunk:
@@ -107,67 +96,38 @@ def handle_conn(conn, addr, model_runner):
         if not text:
             return
 
-        print("\n==================== RECEIVER DEBUG ====================")
-        print(f"[DEBUG] Raw packet from {addr}: {text}")
+        print(f"\n[DEBUG] Raw packet from {addr}: {text}")
 
-        # -------------------------------------------------
         # Parse JSON
-        # -------------------------------------------------
         obj = json.loads(text)
-
-        print("[DEBUG] Parsed JSON keys:", list(obj.keys()))
-        print("[DEBUG] Feature count received:", len(obj))
-
-        # -------------------------------------------------
-        # STRICT FEATURE COUNT CHECK (DROP BAD PACKETS)
-        # -------------------------------------------------
         if len(obj) != EXPECTED_FEATURE_COUNT:
-            print(
-                f"[DISCARDED] Packet from {addr} "
-                f"has {len(obj)} features "
-                f"(expected {EXPECTED_FEATURE_COUNT})"
-            )
-            print("[DISCARDED] Raw JSON:", obj)
-            print("========================================================")
-            return  # ⛔ STOP HERE — DO NOTHING ELSE
+            print(f"[DISCARDED] Packet from {addr} has {len(obj)} features (expected {EXPECTED_FEATURE_COUNT})")
+            return
 
-        # -------------------------------------------------
-        # Schema validation (safe now)
-        # -------------------------------------------------
+        # Validate and order features
         ordered = validate_and_fill(obj)
-
         fv = list(ordered.values())
 
-        print("[DEBUG] Ordered feature dict:")
-        print(ordered)
-        print("[DEBUG] Feature vector:", fv)
-        print("[DEBUG] Feature vector length:", len(fv))
-        print("========================================================")
+        print(f"[DEBUG] Ordered feature dict: {ordered}")
+        print(f"[DEBUG] Feature vector length: {len(fv)}")
 
-        # -------------------------------------------------
         # Save to CSV (features only)
-        # -------------------------------------------------
         row_index = save_features_only(ordered)
 
-        # -------------------------------------------------
         # Predict
-        # -------------------------------------------------
         result = model_runner.predict(fv)
+        value = result.get("reconstruction_error") or result.get("value") or 0.0
+        label = result.get("label", "anomaly")
+        update_prediction(row_index, value, label)
 
-        print(
-            f"[{addr}] {result['label'].upper()} "
-            f"(error={result['reconstruction_error']:.6f})"
-        )
 
-        # -------------------------------------------------
-        # Update CSV with prediction
-        # -------------------------------------------------
-        update_prediction(
-            row_index,
-            result["reconstruction_error"],
-            result["label"]
-        )
+        # Ensure unified keys
+        value = result.get("reconstruction_error") or result.get("value") or 0.0
+        label = result.get("label", "anomaly")
 
+        print(f"[{addr}] Prediction: {label.upper()} (value={value:.6f})")
+
+        # Update CSV
 
     except json.JSONDecodeError as e:
         print(f"[ERROR] Invalid JSON from {addr}: {e}")
@@ -178,19 +138,19 @@ def handle_conn(conn, addr, model_runner):
     finally:
         conn.close()
 
+
 # ---------------------------------------------------------
 # Main server loop
 # ---------------------------------------------------------
 def start_server():
     print("[Receiver] Loading model...")
-
     model_runner = ModelRunner(
         model_path="models/autoencoder.h5",
         scaler_path="models/scaler.save"
     )
 
     # Build CSV header dynamically
-    sample_order = validate_and_fill({})  # empty -> filled with defaults
+    sample_order = validate_and_fill({})  # empty -> defaults
     header = list(sample_order.keys()) + ["reconstruction_error", "label"]
     init_csv(header)
 
@@ -204,11 +164,7 @@ def start_server():
     try:
         while True:
             conn, addr = s.accept()
-            threading.Thread(
-                target=handle_conn,
-                args=(conn, addr, model_runner),
-                daemon=True
-            ).start()
+            threading.Thread(target=handle_conn, args=(conn, addr, model_runner), daemon=True).start()
 
     except KeyboardInterrupt:
         print("Shutting down receiver...")
