@@ -8,7 +8,7 @@ import sys
 import numpy as np
 
 # --- Configuration ---
-SERVER_HOST = "192.168.223.103"
+SERVER_HOST = "10.5.41.113"
 SERVER_PORT = 9000
 # ---------------------
 

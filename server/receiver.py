@@ -4,7 +4,7 @@ Receives JSON, validates schema,
 SAVES FEATURES FIRST,
 then runs Autoencoder model and updates CSV with prediction.
 """
-
+EXPECTED_FEATURE_COUNT = 18
 import socket
 import threading # multi threadig ~~~>> for multi therads 
 import json
@@ -66,9 +66,14 @@ def update_prediction(row_index, error, label):
 # Handle incoming packet
 # ---------------------------------------------------------
 def handle_conn(conn, addr, model_runner):
+    EXPECTED_FEATURE_COUNT = 18
+
     try:
         data = b""
 
+        # -------------------------------------------------
+        # Receive full JSON line (newline-terminated)
+        # -------------------------------------------------
         while True:
             chunk = conn.recv(4096)
             if not chunk:
@@ -84,33 +89,66 @@ def handle_conn(conn, addr, model_runner):
         print("\n==================== RECEIVER DEBUG ====================")
         print(f"[DEBUG] Raw packet from {addr}: {text}")
 
+        # -------------------------------------------------
+        # Parse JSON
+        # -------------------------------------------------
         obj = json.loads(text)
 
         print("[DEBUG] Parsed JSON keys:", list(obj.keys()))
+        print("[DEBUG] Feature count received:", len(obj))
 
+        # -------------------------------------------------
+        # STRICT FEATURE COUNT CHECK (DROP BAD PACKETS)
+        # -------------------------------------------------
+        if len(obj) != EXPECTED_FEATURE_COUNT:
+            print(
+                f"[DISCARDED] Packet from {addr} "
+                f"has {len(obj)} features "
+                f"(expected {EXPECTED_FEATURE_COUNT})"
+            )
+            print("[DISCARDED] Raw JSON:", obj)
+            print("========================================================")
+            return  # ⛔ STOP HERE — DO NOTHING ELSE
+
+        # -------------------------------------------------
+        # Schema validation (safe now)
+        # -------------------------------------------------
         ordered = validate_and_fill(obj)
 
-        print("[DEBUG] Ordered feature dict (correct order):")
+        fv = list(ordered.values())
+
+        print("[DEBUG] Ordered feature dict:")
         print(ordered)
-        print("[DEBUG] Feature vector (values only):")
-        print(list(ordered.values()))
+        print("[DEBUG] Feature vector:", fv)
+        print("[DEBUG] Feature vector length:", len(fv))
         print("========================================================")
 
-        # Save row first:
+        # -------------------------------------------------
+        # Save to CSV (features only)
+        # -------------------------------------------------
         row_index = save_features_only(ordered)
 
+        # -------------------------------------------------
         # Predict
-        result = model_runner.predict(list(ordered.values()))
+        # -------------------------------------------------
+        result = model_runner.predict(fv)
 
         print(
             f"[{addr}] {result['label'].upper()} "
             f"(error={result['reconstruction_error']:.6f})"
         )
 
-        # Update CSV
-        update_prediction(row_index,
-                          result["reconstruction_error"],
-                          result["label"])
+        # -------------------------------------------------
+        # Update CSV with prediction
+        # -------------------------------------------------
+        update_prediction(
+            row_index,
+            result["reconstruction_error"],
+            result["label"]
+        )
+
+    except json.JSONDecodeError as e:
+        print(f"[ERROR] Invalid JSON from {addr}: {e}")
 
     except Exception as e:
         print("Error handling connection:", e)
