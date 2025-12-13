@@ -38,24 +38,28 @@ class ModelRunner:
         fv = np.array(feature_vector, dtype=float).reshape(1, -1)
 
         # -------------------------
-        # FIRST SCALING: manual Min-Max 0-1 per feature
+        # FIRST SCALING: manual Min-Max 0-1 using all features
         # -------------------------
-        fv_min = fv.min(axis=1, keepdims=True)
-        fv_max = fv.max(axis=1, keepdims=True)
-        fv_scaled_once = (fv - fv_min) / (fv_max - fv_min + 1e-6)
+        # Convert input to DataFrame
+        fv_df = pd.DataFrame(fv, columns=self.feature_names)
+        # Apply Min-Max scaling to 0-1 per column
+        fv_min = fv_df.min()
+        fv_max = fv_df.max()
+        fv_scaled_once = (fv_df - fv_min) / (fv_max - fv_min + 1e-6)
 
+        # -------------------------
         # Save first-scaled features to CSV
-        df_scaled_once = pd.DataFrame(fv_scaled_once, columns=self.feature_names)
-        df_scaled_once.to_csv(self.output_csv, mode='a', header=False, index=False)
+        # -------------------------
+        fv_scaled_once.to_csv(self.output_csv, mode='a', header=False, index=False)
 
         # -------------------------
-        # SECOND SCALING: apply saved scaler
+        # SECOND SCALING: apply loaded scaler.save
         # -------------------------
         if self.scaler is not None:
-            fv_scaled_df = pd.DataFrame(fv_scaled_once, columns=self.feature_names)
-            fv_scaled = self.scaler.transform(fv_scaled_df)
+            fv_scaled = self.scaler.transform(fv_scaled_once)
         else:
-            fv_scaled = fv_scaled_once
+            fv_scaled = fv_scaled_once.values
+
 
         # -------------------------
         # MODEL PREDICTION
