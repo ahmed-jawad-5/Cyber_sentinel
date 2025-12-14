@@ -6,10 +6,12 @@ import queue
 import signal
 import sys
 import numpy as np
+import time  # ← new import for delay
 
 # --- Configuration ---
 SERVER_HOST = "10.5.41.146"
 SERVER_PORT = 9000
+PACKET_DELAY = 60  # seconds between packets
 # ---------------------
 
 # Queue for outbound flows
@@ -17,31 +19,19 @@ outbound_queue = queue.Queue()
 
 
 def debug_print_flow(flow_data):
-    """
-    Centralized function to print debugging info for a flow.
-    """
-
     print("\n========================= SENDER DEBUG =========================")
     print("[DEBUG] About to send flow to server...")
-
-    # Keys and ordering
     print("\n[DEBUG] Feature Keys (in order):")
     print(list(flow_data.keys()))
-
-    # Values
     print("\n[DEBUG] Feature Values:")
     print(list(flow_data.values()))
-
-    # Count
     print("\n[DEBUG] Feature Count:", len(flow_data))
 
-    # Check for NaN or INF
     arr = np.array(list(flow_data.values()), dtype=float)
     if np.isnan(arr).any():
         print("⚠️ WARNING: Feature vector contains NaN values!")
     if np.isinf(arr).any():
         print("⚠️ WARNING: Feature vector contains INF values!")
-
     print("===============================================================\n")
 
 
@@ -61,20 +51,18 @@ def sender_worker():
             # Convert OrderedDict/dict → JSON line
             json_line = json.dumps(flow_data) + "\n"
 
-            print("[DEBUG] JSON Line Length:", len(json_line))
-            print("[DEBUG] JSON Preview:", json_line[:200], "...")
-
             # Send TCP packet
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                print(f"[DEBUG] Connecting to {SERVER_HOST}:{SERVER_PORT}...")
                 s.connect((SERVER_HOST, SERVER_PORT))
                 s.sendall(json_line.encode('utf-8'))
-                print("[DEBUG] Packet sent successfully.")
 
-            # best-effort log (fields may not exist)
+            # Log sent info
             sbytes = flow_data.get('sbytes', 0)
             dbytes = flow_data.get('dbytes', 0)
             print(f"[Sent] → flow ({sbytes}↑ {dbytes}↓ bytes)")
+
+            # --- NEW: delay between packets ---
+            time.sleep(PACKET_DELAY)
 
         except (ConnectionRefusedError, BrokenPipeError, OSError):
             print(f"[Error] Could not connect to {SERVER_HOST}:{SERVER_PORT} — server down?")
@@ -92,16 +80,10 @@ def sender_worker():
 
 
 def enqueue_flow(flow_ordered_dict):
-    """Called by flow_tracker when a flow expires."""
     outbound_queue.put(flow_ordered_dict)
 
 
-# === Patch flow_tracker to use our queue ===
 def start_flow_tracker():
-    """
-    Patch flow_tracker._expire_flow so that when a flow completes,
-    we extract its features and send them to the server.
-    """
     from generator.captures import flow_tracker
     from generator.captures import feature_extractor, feature_schema
 
@@ -110,7 +92,6 @@ def start_flow_tracker():
     flows_lock = flow_tracker.flows_lock
     original_expire = flow_tracker._expire_flow
 
-    # --- Patched expire function ---
     def new_expire_flow(key):
         with flows_lock:
             flow_snapshot = flows.get(key)
@@ -118,22 +99,17 @@ def start_flow_tracker():
         if flow_snapshot:
             features = feature_extractor.flow_to_features(flow_snapshot)
             ordered = feature_schema.validate_and_fill(features)
-
-            # Debug sending feature set
             print("\n📦 [FlowTracker] Extracted features for flow:")
             print(ordered)
-
             enqueue_flow(ordered)
 
         original_expire(key)  # delete flow
 
     flow_tracker._expire_flow = new_expire_flow
-
     print("[FlowTracker] Starting packet capture...")
     start_sniff(iface=None, filter="ip")  # blocking
 
 
-# === Graceful shutdown ===
 def signal_handler(sig, frame):
     print("\n[Shutdown] Stopping...")
     outbound_queue.put(None)
@@ -143,7 +119,6 @@ def signal_handler(sig, frame):
 signal.signal(signal.SIGINT, signal_handler)
 
 
-# === Main ===
 if __name__ == "__main__":
     print("=== Real-time UNSW-NB15 Flow Exporter (18-features) ===\n")
     print(f"Sending flows → {SERVER_HOST}:{SERVER_PORT}")
