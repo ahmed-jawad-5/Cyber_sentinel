@@ -60,6 +60,8 @@ class ModelRunner:
             df_init.to_csv(self.output_csv, index=False)
 
     # ----------------------------------------------------------------------
+    def scale_features(self, fv):
+        return self.scaler.transform([fv])[0]
 
     def predict(self, feature_vector):
         """

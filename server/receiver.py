@@ -110,9 +110,21 @@ def handle_conn(conn, addr, model_runner, rag_runner):
                     print(f"[RAG] Trigger #{rag_trigger_count} for {addr}")
 
                     try:
-                        query = json.dumps(obj)
-                        rag_output = rag_runner.generate(query, detailed=True)
-                        print(f"[RAG OUTPUT]\n{rag_output}")
+                        # Build RAG query in the SAME format as training data
+                        scaled_fv = model_runner.scale_features(fv)
+
+                        feature_text = " | ".join(
+                            f"{name}: {scaled_fv[i]:.6f}"
+                            for i, name in enumerate(ordered.keys())
+                        )
+
+                        rag_output = rag_runner.generate(feature_text, detailed=True)
+
+                        print("\n" + "="*40)
+                        print("[RAG OUTPUT]")
+                        print(rag_output)
+                        print("="*40 + "\n")
+
                     except Exception as e:
                         print("[RAG ERROR]:", e)
 
