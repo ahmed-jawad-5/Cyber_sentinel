@@ -19,6 +19,7 @@ HOST = "0.0.0.0"
 PORT = 9000
 CSV_PATH = "results.csv"
 
+
 # ---------------------------------------------------------
 def init_csv(header):
     if not os.path.exists(CSV_PATH):
@@ -34,8 +35,9 @@ def save_features_only(ordered_features):
     with csv_lock:
         with open(CSV_PATH, "a", newline="") as f:
             wr = csv.writer(f)
-            wr.writerow(row + ["", ""])  # placeholders for prediction & label
-        return sum(1 for _ in open(CSV_PATH)) - 1  # zero-based
+            # placeholders: prediction, label, rag_output
+            wr.writerow(row + ["", "", ""])
+        return sum(1 for _ in open(CSV_PATH)) - 1
 
 
 # ---------------------------------------------------------
@@ -48,14 +50,11 @@ def update_prediction(row_index, value, label, rag_output=None):
             print(f"[CSV ERROR] Cannot update row {row_index}.")
             return
 
-        rows[row_index][-2] = str(value)
-        rows[row_index][-1] = str(label)
+        rows[row_index][-3] = str(value)
+        rows[row_index][-2] = str(label)
 
         if rag_output is not None:
-            if len(rows[row_index]) < len(rows[0]):
-                rows[row_index].append(str(rag_output))
-            else:
-                rows[row_index][-1] = str(rag_output)
+            rows[row_index][-1] = str(rag_output)
 
         with open(CSV_PATH, "w", newline="") as f:
             wr = csv.writer(f)
@@ -63,7 +62,9 @@ def update_prediction(row_index, value, label, rag_output=None):
 
 
 # ---------------------------------------------------------
-def handle_conn(conn, addr, model_runner):
+def handle_conn(conn, addr, model_runner, rag_runner):
+    global rag_trigger_count
+
     try:
         data = b""
         while True:
@@ -82,7 +83,7 @@ def handle_conn(conn, addr, model_runner):
 
         obj = json.loads(text)
         if len(obj) != EXPECTED_FEATURE_COUNT:
-            print(f"[DISCARDED] Packet from {addr} has {len(obj)} features (expected {EXPECTED_FEATURE_COUNT})")
+            print(f"[DISCARDED] Packet from {addr} has {len(obj)} features")
             return
 
         ordered = validate_and_fill(obj)
@@ -90,23 +91,28 @@ def handle_conn(conn, addr, model_runner):
 
         row_index = save_features_only(ordered)
 
-        # MULTI-CLASS PREDICTION
+        # -----------------------------
+        # Prediction
+        # -----------------------------
         result = model_runner.predict(fv)
         value = result["prediction"]
         label = result["label"]
 
         rag_output = None
-        global rag_trigger_count
 
-        # Trigger RAG only for first 3 anomalous packets
+        # -----------------------------
+        # RAG TRIGGER (FIRST 3 ANOMALIES)
+        # -----------------------------
         if label != "normal":
             with rag_lock:
                 if rag_trigger_count < MAX_RAG_TRIGGERS:
                     rag_trigger_count += 1
-                    query = json.dumps(obj)  # send packet JSON as query
+                    print(f"[RAG] Trigger #{rag_trigger_count} for {addr}")
+
                     try:
+                        query = json.dumps(obj)
                         rag_output = rag_runner.generate(query, detailed=True)
-                        print(f"[RAG OUTPUT] {rag_output}")
+                        print(f"[RAG OUTPUT]\n{rag_output}")
                     except Exception as e:
                         print("[RAG ERROR]:", e)
 
@@ -114,8 +120,6 @@ def handle_conn(conn, addr, model_runner):
 
         print(f"[{addr}] Prediction: {label.upper()} (value={value:.6f})")
 
-    except json.JSONDecodeError as e:
-        print(f"[ERROR] Invalid JSON from {addr}: {e}")
     except Exception as e:
         print("[ERROR] Handling connection:", e)
     finally:
@@ -130,30 +134,35 @@ def start_server():
         scaler_path="models/scaler.save",
         normal_threshold=0.15
     )
-    # Initialize RAG runner
+
+    # ✅ Initialize RAG AFTER startup
     from server.rag_runner import RAGRunner
     rag_runner = RAGRunner()
 
-
-
-    # Build CSV header dynamically
+    # CSV header
     sample_order = validate_and_fill({})
-    header = list(sample_order.keys()) + ["reconstruction_error", "label", "rag_output"]
+    header = list(sample_order.keys()) + [
+        "reconstruction_error",
+        "label",
+        "rag_output"
+    ]
     init_csv(header)
-
 
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind((HOST, PORT))
     s.listen(5)
+
     print(f"[Receiver] Listening on {HOST}:{PORT} ...")
 
     try:
         while True:
             conn, addr = s.accept()
-            threading.Thread(target=handle_conn, args=(conn, addr, model_runner), daemon=True).start()
-    except KeyboardInterrupt:
-        print("Shutting down receiver...")
+            threading.Thread(
+                target=handle_conn,
+                args=(conn, addr, model_runner, rag_runner),
+                daemon=True
+            ).start()
     finally:
         s.close()
 
