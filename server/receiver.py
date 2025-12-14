@@ -118,19 +118,33 @@ def handle_conn(conn, addr, model_runner, rag_runner):
                         q_emb = rag_runner.emb_model.encode([query_str], convert_to_numpy=True)
                         faiss.normalize_L2(q_emb)
 
-                        # Retrieve top-K
-                        D, I = rag_runner.index.search(q_emb, rag_runner.top_k)
-                        retrieved_docs = [rag_runner.metadata[i] for i in I[0].tolist()]
+                        # Check if index exists and has entries
+                        if rag_runner.index.ntotal == 0:
+                            print("[RAG WARNING] FAISS index is empty.")
+                            rag_output = "[RAG] No knowledge available"
+                        else:
+                            # Retrieve top-K
+                            D, I = rag_runner.index.search(q_emb, rag_runner.top_k)
+                            retrieved_docs = []
+                            for i in I[0].tolist():
+                                if i < len(rag_runner.metadata):
+                                    retrieved_docs.append(rag_runner.metadata[i])
 
-                        # Build prompt
-                        prompt = rag_runner.build_prompt_with_context(query_str, retrieved_docs, detailed=True)
+                            if not retrieved_docs:
+                                rag_output = "[RAG] No relevant documents found"
+                            else:
+                                # Build prompt
+                                prompt = rag_runner.build_prompt_with_context(query_str, retrieved_docs, detailed=True)
+                                # Generate RAG output
+                                rag_output = rag_runner.llm.generate(prompt, max_new_tokens=200)
+                                if not rag_output.strip():
+                                    rag_output = "[RAG] Model returned empty output"
 
-                        # Generate RAG output
-                        rag_output = rag_runner.llm.generate(prompt, max_new_tokens=200)
                         print(f"[RAG OUTPUT]\n{rag_output}")
 
                     except Exception as e:
                         print("[RAG ERROR]:", e)
+                        rag_output = "[RAG ERROR]"
 
         update_prediction(row_index, value, label, rag_output)
         print(f"[{addr}] Prediction: {label.upper()} (value={value:.6f})")
