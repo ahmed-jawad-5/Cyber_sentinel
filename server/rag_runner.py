@@ -1,5 +1,6 @@
 import os
 import pickle
+import joblib
 import faiss
 import torch
 from sentence_transformers import SentenceTransformer
@@ -38,8 +39,7 @@ class RAGRunner:
         self.index = faiss.read_index(index_path)
         print("[RAG] Metadata path:", meta_path)
         print("[RAG] File size:", os.path.getsize(meta_path), "bytes")
-        with open(meta_path, "rb") as f:
-            self.metadata = pickle.load(f, encoding="latin1")
+        self.metadata = joblib.load(meta_path)
 
 
 
