@@ -36,8 +36,8 @@ class RAGRunner:
         if not os.path.exists(index_path) or not os.path.exists(meta_path):
             raise FileNotFoundError("FAISS index or metadata not found.")
         self.index = faiss.read_index(index_path)
-        print("[RAG] Metadata path:", self.meta_path)
-        print("[RAG] File size:", os.path.getsize(self.meta_path), "bytes")
+        print("[RAG] Metadata path:", meta_path)
+        print("[RAG] File size:", os.path.getsize(meta_path), "bytes")
         with open(self.meta_path, "rb") as f:
             self.metadata = pickle.load(f)
 
