@@ -38,7 +38,7 @@ class RAGRunner:
         self.index = faiss.read_index(index_path)
         print("[RAG] Metadata path:", meta_path)
         print("[RAG] File size:", os.path.getsize(meta_path), "bytes")
-        with open(self.meta_path, "rb") as f:
+        with open(meta_path, "rb") as f:
             self.metadata = pickle.load(f)
 
 
