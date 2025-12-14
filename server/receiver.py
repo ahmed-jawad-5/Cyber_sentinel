@@ -1,5 +1,3 @@
-# server/receiver.py
-
 EXPECTED_FEATURE_COUNT = 18
 import socket
 import threading
@@ -7,14 +5,15 @@ import json
 import csv
 import os
 
-rag_trigger_count = 0
-MAX_RAG_TRIGGERS = 3
-rag_lock = threading.Lock()
-
 from generator.captures.feature_schema import validate_and_fill
 from server.model_runner import ModelRunner
+from server.rag_runner import RAGRunner
 
 csv_lock = threading.Lock()
+rag_lock = threading.Lock()
+rag_trigger_count = 0
+MAX_RAG_TRIGGERS = 3
+
 HOST = "0.0.0.0"
 PORT = 9000
 CSV_PATH = "results.csv"
@@ -29,18 +28,15 @@ def init_csv(header):
         print(f"[Receiver] Created CSV file: {CSV_PATH}")
 
 
-# ---------------------------------------------------------
 def save_features_only(ordered_features):
     row = list(ordered_features.values())
     with csv_lock:
         with open(CSV_PATH, "a", newline="") as f:
             wr = csv.writer(f)
-            # placeholders: prediction, label, rag_output
-            wr.writerow(row + ["", "", ""])
+            wr.writerow(row + ["", "", ""])  # placeholders: prediction, label, rag_output
         return sum(1 for _ in open(CSV_PATH)) - 1
 
 
-# ---------------------------------------------------------
 def update_prediction(row_index, value, label, rag_output=None):
     with csv_lock:
         with open(CSV_PATH, "r") as f:
@@ -52,7 +48,6 @@ def update_prediction(row_index, value, label, rag_output=None):
 
         rows[row_index][-3] = str(value)
         rows[row_index][-2] = str(label)
-
         if rag_output is not None:
             rows[row_index][-1] = str(rag_output)
 
@@ -61,10 +56,8 @@ def update_prediction(row_index, value, label, rag_output=None):
             wr.writerows(rows)
 
 
-# ---------------------------------------------------------
 def handle_conn(conn, addr, model_runner, rag_runner):
     global rag_trigger_count
-
     try:
         data = b""
         while True:
@@ -88,7 +81,6 @@ def handle_conn(conn, addr, model_runner, rag_runner):
 
         ordered = validate_and_fill(obj)
         fv = list(ordered.values())
-
         row_index = save_features_only(ordered)
 
         # -----------------------------
@@ -108,28 +100,29 @@ def handle_conn(conn, addr, model_runner, rag_runner):
                 if rag_trigger_count < MAX_RAG_TRIGGERS:
                     rag_trigger_count += 1
                     print(f"[RAG] Trigger #{rag_trigger_count} for {addr}")
-
                     try:
-                        # Build RAG query in the SAME format as training data
-                        scaled_fv = model_runner.scale_features(fv)
+                        # Convert JSON to feature string like training
+                        query_str = " | ".join([f"{k}: {v}" for k, v in ordered.items()])
 
-                        feature_text = " | ".join(
-                            f"{name}: {scaled_fv[i]:.6f}"
-                            for i, name in enumerate(ordered.keys())
-                        )
+                        # Embed query
+                        q_emb = rag_runner.emb_model.encode([query_str], convert_to_numpy=True)
+                        faiss.normalize_L2(q_emb)
 
-                        rag_output = rag_runner.generate(feature_text, detailed=True)
+                        # Retrieve top-K
+                        D, I = rag_runner.index.search(q_emb, rag_runner.top_k)
+                        retrieved_docs = [rag_runner.metadata[i] for i in I[0].tolist()]
 
-                        print("\n" + "="*40)
-                        print("[RAG OUTPUT]")
-                        print(rag_output)
-                        print("="*40 + "\n")
+                        # Build prompt
+                        prompt = rag_runner.build_prompt_with_context(query_str, retrieved_docs, detailed=True)
+
+                        # Generate RAG output
+                        rag_output = rag_runner.llm.generate(prompt, max_new_tokens=200)
+                        print(f"[RAG OUTPUT]\n{rag_output}")
 
                     except Exception as e:
                         print("[RAG ERROR]:", e)
 
         update_prediction(row_index, value, label, rag_output)
-
         print(f"[{addr}] Prediction: {label.upper()} (value={value:.6f})")
 
     except Exception as e:
@@ -138,7 +131,6 @@ def handle_conn(conn, addr, model_runner, rag_runner):
         conn.close()
 
 
-# ---------------------------------------------------------
 def start_server():
     print("[Receiver] Loading model...")
     model_runner = ModelRunner(
@@ -147,24 +139,17 @@ def start_server():
         normal_threshold=0.15
     )
 
-    # ✅ Initialize RAG AFTER startup
-    from server.rag_runner import RAGRunner
     rag_runner = RAGRunner()
 
     # CSV header
     sample_order = validate_and_fill({})
-    header = list(sample_order.keys()) + [
-        "reconstruction_error",
-        "label",
-        "rag_output"
-    ]
+    header = list(sample_order.keys()) + ["reconstruction_error", "label", "rag_output"]
     init_csv(header)
 
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind((HOST, PORT))
     s.listen(5)
-
     print(f"[Receiver] Listening on {HOST}:{PORT} ...")
 
     try:
