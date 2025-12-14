@@ -9,6 +9,16 @@ from generator.captures.feature_schema import validate_and_fill
 from server.model_runner import ModelRunner
 from server.rag_runner import RAGRunner
 
+# ----------------------------
+# FAISS IMPORT FIX
+# ----------------------------
+try:
+    import faiss
+    FAISS_AVAILABLE = True
+except ImportError:
+    print("[RAG WARNING] faiss not installed. RAG functionality will be disabled.")
+    FAISS_AVAILABLE = False
+
 csv_lock = threading.Lock()
 rag_lock = threading.Lock()
 rag_trigger_count = 0
@@ -95,7 +105,7 @@ def handle_conn(conn, addr, model_runner, rag_runner):
         # -----------------------------
         # RAG TRIGGER (FIRST 3 ANOMALIES)
         # -----------------------------
-        if label != "normal":
+        if label != "normal" and FAISS_AVAILABLE:
             with rag_lock:
                 if rag_trigger_count < MAX_RAG_TRIGGERS:
                     rag_trigger_count += 1
