@@ -296,7 +296,6 @@ if __name__ == "__main__":
 
     for i in range(1, total_flows + 1):
 
-        # Always generate a normal flow
         pkts, label = make_generic_attack()
 
         if i % 10 == 0:

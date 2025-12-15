@@ -11,7 +11,7 @@ import time  # ← new import for delay
 # --- Configuration ---
 SERVER_HOST = "10.5.41.146"
 SERVER_PORT = 9000
-PACKET_DELAY = 60  # seconds between packets
+PACKET_DELAY = 300  # seconds between packets
 # ---------------------
 
 # Queue for outbound flows
