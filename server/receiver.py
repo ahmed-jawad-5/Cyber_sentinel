@@ -1,33 +1,23 @@
-EXPECTED_FEATURE_COUNT = 18
 import socket
 import threading
 import json
 import csv
 import os
+import time
+import numpy as np
 
 from generator.captures.feature_schema import validate_and_fill
 from server.model_runner import ModelRunner
-from server.rag_runner import RAGRunner
 
 # ----------------------------
-# FAISS IMPORT FIX
+# CONFIG
 # ----------------------------
-try:
-    import faiss
-    FAISS_AVAILABLE = True
-except ImportError:
-    print("[RAG WARNING] faiss not installed. RAG functionality will be disabled.")
-    FAISS_AVAILABLE = False
-
-csv_lock = threading.Lock()
-rag_lock = threading.Lock()
-rag_trigger_count = 0
-MAX_RAG_TRIGGERS = 3
-
 HOST = "0.0.0.0"
 PORT = 9000
 CSV_PATH = "results.csv"
+EXPECTED_FEATURE_COUNT = 18
 
+csv_lock = threading.Lock()
 
 # ---------------------------------------------------------
 def init_csv(header):
@@ -37,37 +27,37 @@ def init_csv(header):
             wr.writerow(header)
         print(f"[Receiver] Created CSV file: {CSV_PATH}")
 
-
 def save_features_only(ordered_features):
-    row = list(ordered_features.values())
+    # Convert any numpy types to python types for CSV writing
+    row = [v.item() if hasattr(v, 'item') else v for v in ordered_features.values()]
     with csv_lock:
         with open(CSV_PATH, "a", newline="") as f:
             wr = csv.writer(f)
-            wr.writerow(row + ["", "", ""])  # placeholders: prediction, label, rag_output
-        return sum(1 for _ in open(CSV_PATH)) - 1
+            wr.writerow(row + ["", ""])
+        
+        try:
+            with open(CSV_PATH, "r") as f:
+                return sum(1 for _ in f) - 1
+        except:
+            return 0
 
-
-def update_prediction(row_index, value, label, rag_output=None):
+def update_prediction(row_index, value, label):
     with csv_lock:
+        if not os.path.exists(CSV_PATH):
+            return
         with open(CSV_PATH, "r") as f:
             rows = list(csv.reader(f))
 
-        if row_index >= len(rows):
-            print(f"[CSV ERROR] Cannot update row {row_index}.")
-            return
+        if row_index < len(rows):
+            # Ensure we save as strings/floats, not numpy types
+            rows[row_index][-2] = str(float(value))
+            rows[row_index][-1] = str(label)
 
-        rows[row_index][-3] = str(value)
-        rows[row_index][-2] = str(label)
-        if rag_output is not None:
-            rows[row_index][-1] = str(rag_output)
+            with open(CSV_PATH, "w", newline="") as f:
+                wr = csv.writer(f)
+                wr.writerows(rows)
 
-        with open(CSV_PATH, "w", newline="") as f:
-            wr = csv.writer(f)
-            wr.writerows(rows)
-
-
-def handle_conn(conn, addr, model_runner, rag_runner):
-    global rag_trigger_count
+def handle_conn(conn, addr, model_runner, callback):
     try:
         data = b""
         while True:
@@ -75,119 +65,96 @@ def handle_conn(conn, addr, model_runner, rag_runner):
             if not chunk:
                 break
             data += chunk
-            if b"\n" in chunk:
+            if b"\n" in chunk: 
                 break
 
         text = data.decode().strip()
         if not text:
             return
 
-        print(f"\n[DEBUG] Raw packet from {addr}: {text}")
-
         obj = json.loads(text)
-        if len(obj) != EXPECTED_FEATURE_COUNT:
-            print(f"[DISCARDED] Packet from {addr} has {len(obj)} features")
-            return
-
         ordered = validate_and_fill(obj)
         fv = list(ordered.values())
+
+        # 1. Save features to CSV
         row_index = save_features_only(ordered)
 
-        # -----------------------------
-        # Prediction
-        # -----------------------------
+        # 2. XGBoost Prediction
         result = model_runner.predict(fv)
-        value = result["prediction"]
-        label = result["label"]
+        
+        # Extract and cast NumPy types to standard Python types
+        # This prevents the "numpy.float32 is not iterable" error in FastAPI
+        raw_value = result["prediction"]
+        raw_label = result["label"]
+        
+        value = float(raw_value) if hasattr(raw_value, 'item') else raw_value
+        label = str(raw_label)
 
-        rag_output = None
+        # 3. Update the CSV
+        update_prediction(row_index, value, label)
 
-        # -----------------------------
-        # RAG TRIGGER (FIRST 3 ANOMALIES)
-        # -----------------------------
-        if label != "normal" and FAISS_AVAILABLE:
-            with rag_lock:
-                if rag_trigger_count < MAX_RAG_TRIGGERS:
-                    rag_trigger_count += 1
-                    print(f"[RAG] Trigger #{rag_trigger_count} for {addr}")
-                    try:
-                        # Convert JSON to feature string like training
-                        query_str = " | ".join([f"{k}: {v}" for k, v in ordered.items()])
+        # 4. Push to UI via API Callback
+        if callback:
+            # Deep sanitize the ordered dictionary (features)
+            clean_flow = {}
+            for k, v in ordered.items():
+                if hasattr(v, 'item'): # Handle numpy types
+                    clean_flow[k] = v.item()
+                else:
+                    clean_flow[k] = v
 
-                        # Embed query
-                        q_emb = rag_runner.emb_model.encode([query_str], convert_to_numpy=True)
-                        faiss.normalize_L2(q_emb)
+            # Add prediction results into the flow object for the UI
+            clean_flow["label"] = label
+            clean_flow["reconstruction_error"] = round(value, 6)
+            clean_flow["id"] = f"PKT-{int(time.time()*1000)}"
+            clean_flow["srcip"] = str(addr[0])
 
-                        # Check if index exists and has entries
-                        if rag_runner.index.ntotal == 0:
-                            print("[RAG WARNING] FAISS index is empty.")
-                            rag_output = "[RAG] No knowledge available"
-                        else:
-                            # Retrieve top-K
-                            D, I = rag_runner.index.search(q_emb, rag_runner.top_k)
-                            retrieved_docs = []
-                            for i in I[0].tolist():
-                                if i < len(rag_runner.metadata):
-                                    retrieved_docs.append(rag_runner.metadata[i])
+            ui_payload = {
+                "flow": clean_flow,
+                "rag_prompt": None
+            }
+            
+            callback(ui_payload)
 
-                            if not retrieved_docs:
-                                rag_output = "[RAG] No relevant documents found"
-                            else:
-                                # Build prompt
-                                prompt = rag_runner.build_prompt_with_context(query_str, retrieved_docs, detailed=True)
-                                # Generate RAG output
-                                rag_output = rag_runner.llm.generate(prompt, max_new_tokens=200)
-                                if not rag_output.strip():
-                                    rag_output = "[RAG] Model returned empty output"
-
-                        print(f"[RAG OUTPUT]\n{rag_output}")
-
-                    except Exception as e:
-                        print("[RAG ERROR]:", e)
-                        rag_output = "[RAG ERROR]"
-
-        update_prediction(row_index, value, label, rag_output)
-        print(f"[{addr}] Prediction: {label.upper()} (value={value:.6f})")
+        print(f"[{addr}] Processed: {label.upper()} ({value:.4f})")
 
     except Exception as e:
-        print("[ERROR] Handling connection:", e)
+        print(f"[ERROR] Connection from {addr}: {e}")
     finally:
         conn.close()
 
-
-def start_server():
-    print("[Receiver] Loading model...")
+def start_server(callback=None):
+    print("[Receiver] Initializing Model...")
     model_runner = ModelRunner(
         model_path="models/XGBoost_model.pkl",
-        scaler_path="models/scaler.save",
-        normal_threshold=0.15
+        scaler_path="models/scaler.save"
     )
 
-    rag_runner = RAGRunner()
-
-    # CSV header
+    # Setup CSV
     sample_order = validate_and_fill({})
-    header = list(sample_order.keys()) + ["reconstruction_error", "label", "rag_output"]
+    header = list(sample_order.keys()) + ["prediction", "label"]
     init_csv(header)
 
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind((HOST, PORT))
-    s.listen(5)
-    print(f"[Receiver] Listening on {HOST}:{PORT} ...")
+    s.listen(10)
+
+    print(f"[Receiver] Running on {HOST}:{PORT}")
 
     try:
         while True:
             conn, addr = s.accept()
             threading.Thread(
                 target=handle_conn,
-                args=(conn, addr, model_runner, rag_runner),
+                args=(conn, addr, model_runner, callback),
                 daemon=True
             ).start()
+    except KeyboardInterrupt:
+        print("\n[Receiver] Shutting down...")
     finally:
         s.close()
 
-
 if __name__ == "__main__":
-    start_server()
-#RAG implemented
+    # Test mode
+    start_server(callback=lambda x: print(f"DEBUG CALLBACK: {x['flow']['label']}"))
