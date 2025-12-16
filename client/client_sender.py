@@ -1,137 +1,149 @@
-# client/client_sender.py
 import socket
 import json
 import threading
 import queue
+import numpy as np
+import time
 import signal
 import sys
-import numpy as np
-import time  # ← new import for delay
 
-# --- Configuration ---
-SERVER_HOST = "10.5.41.146"
-SERVER_PORT = 9000
-PACKET_DELAY = 300  # seconds between packets
-# ---------------------
-
-# Queue for outbound flows
+# =========================================================
+# GLOBAL STATE (controlled by API)
+# =========================================================
 outbound_queue = queue.Queue()
+stop_event = threading.Event()
+runtime_config = {}
+sender_thread = None
+sniffer_thread = None
 
 
+# =========================================================
+# DEBUG HELPERS
+# =========================================================
 def debug_print_flow(flow_data):
-    print("\n========================= SENDER DEBUG =========================")
-    print("[DEBUG] About to send flow to server...")
-    print("\n[DEBUG] Feature Keys (in order):")
-    print(list(flow_data.keys()))
-    print("\n[DEBUG] Feature Values:")
-    print(list(flow_data.values()))
-    print("\n[DEBUG] Feature Count:", len(flow_data))
+    print("\n===================== SENDER DEBUG =====================")
+    print("[DEBUG] Sending flow to receiver")
+    print("Keys:", list(flow_data.keys()))
+    print("Values:", list(flow_data.values()))
+    print("Feature count:", len(flow_data))
 
     arr = np.array(list(flow_data.values()), dtype=float)
     if np.isnan(arr).any():
-        print("⚠️ WARNING: Feature vector contains NaN values!")
+        print("⚠ WARNING: NaN detected")
     if np.isinf(arr).any():
-        print("⚠️ WARNING: Feature vector contains INF values!")
-    print("===============================================================\n")
+        print("⚠ WARNING: INF detected")
+
+    print("=======================================================\n")
 
 
+# =========================================================
+# SENDER WORKER
+# =========================================================
 def sender_worker():
-    """Background thread: takes completed flows from queue and sends them."""
-    print(f"[Sender] Connecting to {SERVER_HOST}:{SERVER_PORT} for each flow...")
+    print("[Sender] Worker started")
 
-    while True:
+    while not stop_event.is_set():
         try:
-            flow_data = outbound_queue.get()
-            if flow_data is None:
-                break  # Shutdown
+            flow_data = outbound_queue.get(timeout=1)
 
-            # Debug print before sending
+            host = runtime_config["host"]
+            port = runtime_config["port"]
+            delay = runtime_config["delay"]
+
             debug_print_flow(flow_data)
 
-            # Convert OrderedDict/dict → JSON line
-            json_line = json.dumps(flow_data) + "\n"
+            payload = json.dumps(flow_data) + "\n"
 
-            # Send TCP packet
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect((SERVER_HOST, SERVER_PORT))
-                s.sendall(json_line.encode('utf-8'))
+                s.connect((host, port))
+                s.sendall(payload.encode("utf-8"))
 
-            # Log sent info
-            sbytes = flow_data.get('sbytes', 0)
-            dbytes = flow_data.get('dbytes', 0)
-            print(f"[Sent] → flow ({sbytes}↑ {dbytes}↓ bytes)")
+            print(f"[Sender] Sent → {host}:{port}")
 
-            # --- NEW: delay between packets ---
-            time.sleep(PACKET_DELAY)
+            time.sleep(delay)
 
-        except (ConnectionRefusedError, BrokenPipeError, OSError):
-            print(f"[Error] Could not connect to {SERVER_HOST}:{SERVER_PORT} — server down?")
-            outbound_queue.put(flow_data)  # retry
-            break
-
+        except queue.Empty:
+            continue
         except Exception as e:
-            print(f"[Sender Error] {e}")
-
-        finally:
-            try:
-                outbound_queue.task_done()
-            except Exception:
-                pass
+            print("[Sender ERROR]", e)
 
 
-def enqueue_flow(flow_ordered_dict):
-    outbound_queue.put(flow_ordered_dict)
-
-
+# =========================================================
+# FLOW TRACKER INTEGRATION
+# =========================================================
 def start_flow_tracker():
     from generator.captures import flow_tracker
     from generator.captures import feature_extractor, feature_schema
 
-    start_sniff = flow_tracker.start_sniff
     flows = flow_tracker.flows
     flows_lock = flow_tracker.flows_lock
     original_expire = flow_tracker._expire_flow
 
-    def new_expire_flow(key):
+    def patched_expire_flow(key):
         with flows_lock:
             flow_snapshot = flows.get(key)
 
         if flow_snapshot:
             features = feature_extractor.flow_to_features(flow_snapshot)
             ordered = feature_schema.validate_and_fill(features)
-            print("\n📦 [FlowTracker] Extracted features for flow:")
+
+            print("\n📦 [FlowTracker] Flow expired → enqueue")
             print(ordered)
-            enqueue_flow(ordered)
 
-        original_expire(key)  # delete flow
+            outbound_queue.put(ordered)
 
-    flow_tracker._expire_flow = new_expire_flow
-    print("[FlowTracker] Starting packet capture...")
-    start_sniff(iface=None, filter="ip")  # blocking
+        original_expire(key)
+
+    flow_tracker._expire_flow = patched_expire_flow
+
+    print("[FlowTracker] Packet sniffing started")
+    flow_tracker.start_sniff(iface=None, filter="ip")  # blocking
 
 
+# =========================================================
+# PUBLIC API FUNCTIONS (USED BY FASTAPI)
+# =========================================================
+def start_sender(host: str, port: int, delay: float):
+    global sender_thread, sniffer_thread
+
+    if sender_thread and sender_thread.is_alive():
+        print("[Sender] Already running")
+        return
+
+    runtime_config["host"] = host
+    runtime_config["port"] = port
+    runtime_config["delay"] = delay
+
+    stop_event.clear()
+
+    sender_thread = threading.Thread(target=sender_worker, daemon=True)
+    sniffer_thread = threading.Thread(target=start_flow_tracker, daemon=True)
+
+    sender_thread.start()
+    sniffer_thread.start()
+
+    print(f"[Sender] Started → {host}:{port} (delay={delay}s)")
+
+
+def stop_sender():
+    stop_event.set()
+
+    while not outbound_queue.empty():
+        try:
+            outbound_queue.get_nowait()
+        except queue.Empty:
+            break
+
+    print("[Sender] Stopped")
+
+
+# =========================================================
+# SAFE SHUTDOWN
+# =========================================================
 def signal_handler(sig, frame):
-    print("\n[Shutdown] Stopping...")
-    outbound_queue.put(None)
+    print("\n[Shutdown] Sender stopping...")
+    stop_sender()
     sys.exit(0)
 
 
 signal.signal(signal.SIGINT, signal_handler)
-
-
-if __name__ == "__main__":
-    print("=== Real-time UNSW-NB15 Flow Exporter (18-features) ===\n")
-    print(f"Sending flows → {SERVER_HOST}:{SERVER_PORT}")
-    print("Press Ctrl+C to stop\n")
-
-    sender_thread = threading.Thread(target=sender_worker, daemon=True)
-    sender_thread.start()
-
-    try:
-        start_flow_tracker()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        outbound_queue.put(None)
-        sender_thread.join(timeout=2)
-        print("Goodbye!")
