@@ -9,5 +9,4 @@ models/DNN_model.h5
 models/Autoencoder_model.h5
 models/rag_final/
 gui-react/node_modules
-gui-react/package.json
-gui-react/package-lock.json
+
