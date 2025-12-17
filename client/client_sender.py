@@ -140,10 +140,10 @@ def stop_sender():
 # =========================================================
 # SAFE SHUTDOWN
 # =========================================================
-def signal_handler(sig, frame):
-    print("\n[Shutdown] Sender stopping...")
-    stop_sender()
-    sys.exit(0)
+# def signal_handler(sig, frame):
+#     print("\n[Shutdown] Sender stopping...")
+#     stop_sender()
+#     sys.exit(0)
 
 
-signal.signal(signal.SIGINT, signal_handler)
+# signal.signal(signal.SIGINT, signal_handler)
