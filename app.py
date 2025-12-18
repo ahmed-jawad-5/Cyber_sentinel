@@ -25,4 +25,4 @@ if __name__ == "__main__":
         width=1400,
         height=900
     )
-    webview.start(gui='qt')  # <--- force Qt backend
+    webview.start(gui='gtk') # <--- force Qt backend
