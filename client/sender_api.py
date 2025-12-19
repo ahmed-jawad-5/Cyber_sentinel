@@ -92,3 +92,12 @@ def stop_sender_api():
     return {
         "status": "stopped"
     }
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(
+        "server.api:app",
+        host="127.0.0.1",
+        port=8001,
+        log_level="info"
+    )

@@ -1,68 +1,70 @@
 const { app, BrowserWindow } = require('electron');
-const path = require('path');
 const { spawn } = require('child_process');
+const path = require('path');
 
-let mainWindow;
-let pythonProcess;
+let receiverProcess;
+let senderProcess;
 
-// project root = one level above gui-react
-const PROJECT_ROOT = path.resolve(__dirname, '..');
+const ROOT = path.join(__dirname, '..');
 
-function startPythonBackend() {
-    pythonProcess = spawn(
-        'python',
-        ['server/api.py'],
-        {
-            cwd: PROJECT_ROOT,
-            env: {
-                ...process.env,
-                PYTHONPATH: PROJECT_ROOT
-            }
-        }
-    );
+function startReceiverAPI() {
+  receiverProcess = spawn(
+    'uvicorn',
+    ['api:app', '--host', '127.0.0.1', '--port', '8000'],
+    {
+      cwd: ROOT,
+      env: {
+        ...process.env,
+        PYTHONPATH: ROOT
+      }
+    }
+  );
 
-    pythonProcess.stdout.on('data', (data) => {
-        console.log(`[Python]: ${data}`);
-    });
-
-    pythonProcess.stderr.on('data', (data) => {
-        console.error(`[Python ERROR]: ${data}`);
-    });
-
-    pythonProcess.on('close', (code) => {
-        console.log(`Python exited with code ${code}`);
-    });
+  receiverProcess.stdout.on('data', d =>
+    console.log('[Receiver]', d.toString())
+  );
+  receiverProcess.stderr.on('data', d =>
+    console.error('[Receiver ERROR]', d.toString())
+  );
 }
 
-function createWindow() {
-    mainWindow = new BrowserWindow({
-        width: 1400,
-        height: 900,
-        webPreferences: {
-            nodeIntegration: false,
-            contextIsolation: true
-        }
-    });
+function startSenderAPI() {
+  senderProcess = spawn(
+    'uvicorn',
+    ['client.sender_api:app', '--host', '127.0.0.1', '--port', '8001'],
+    {
+      cwd: ROOT,
+      env: {
+        ...process.env,
+        PYTHONPATH: ROOT
+      }
+    }
+  );
 
-    mainWindow.loadFile(
-        path.join(__dirname, 'dist', 'index.html')
-    );
-
-    mainWindow.on('closed', () => {
-        if (pythonProcess) pythonProcess.kill('SIGTERM');
-        mainWindow = null;
-    });
+  senderProcess.stdout.on('data', d =>
+    console.log('[Sender]', d.toString())
+  );
+  senderProcess.stderr.on('data', d =>
+    console.error('[Sender ERROR]', d.toString())
+  );
 }
 
 app.whenReady().then(() => {
-    startPythonBackend();
-    createWindow();
+  startReceiverAPI();
+  startSenderAPI();
+
+  const win = new BrowserWindow({
+    width: 1300,
+    height: 850,
+    webPreferences: {
+      contextIsolation: true
+    }
+  });
+
+  win.loadURL('http://localhost:5173'); // React dev server
 });
 
-app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') app.quit();
-});
-
-app.on('activate', () => {
-    if (mainWindow === null) createWindow();
+app.on('will-quit', () => {
+  receiverProcess?.kill();
+  senderProcess?.kill();
 });

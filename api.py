@@ -133,3 +133,13 @@ def explain_alert(packet_id: str):
 @app.get("/")
 def read_root():
     return {"message": "Cyber-Sentinel API is online"}
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(
+        "server.api:app",
+        host="127.0.0.1",
+        port=8000,
+        log_level="info"
+    )
