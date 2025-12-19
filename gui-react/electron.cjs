@@ -5,11 +5,21 @@ const { spawn } = require('child_process');
 let mainWindow;
 let pythonProcess;
 
+// project root = one level above gui-react
+const PROJECT_ROOT = path.resolve(__dirname, '..');
+
 function startPythonBackend() {
-    // Start FastAPI backend (receiver)
-    pythonProcess = spawn('python', [
-        path.join(__dirname, '..', 'server', 'api.py')
-    ]);
+    pythonProcess = spawn(
+        'python',
+        ['server/api.py'],
+        {
+            cwd: PROJECT_ROOT,
+            env: {
+                ...process.env,
+                PYTHONPATH: PROJECT_ROOT
+            }
+        }
+    );
 
     pythonProcess.stdout.on('data', (data) => {
         console.log(`[Python]: ${data}`);
@@ -20,7 +30,7 @@ function startPythonBackend() {
     });
 
     pythonProcess.on('close', (code) => {
-        console.log(`Python process exited with code ${code}`);
+        console.log(`Python exited with code ${code}`);
     });
 }
 
@@ -34,28 +44,25 @@ function createWindow() {
         }
     });
 
-    // Load the React build
-    mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'));
+    mainWindow.loadFile(
+        path.join(__dirname, 'dist', 'index.html')
+    );
 
-    mainWindow.on('closed', function () {
+    mainWindow.on('closed', () => {
+        if (pythonProcess) pythonProcess.kill('SIGTERM');
         mainWindow = null;
-        if (pythonProcess) pythonProcess.kill();
     });
 }
 
-app.on('ready', () => {
+app.whenReady().then(() => {
     startPythonBackend();
     createWindow();
 });
 
-app.on('window-all-closed', function () {
-    if (process.platform !== 'darwin') {
-        app.quit();
-    }
+app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('activate', function () {
-    if (mainWindow === null) {
-        createWindow();
-    }
+app.on('activate', () => {
+    if (mainWindow === null) createWindow();
 });
