@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 
-const SENDER_API = "http://localhost:9001";
+const SENDER_API = "http://127.0.0.1:8001"; // Correct port
 
 export default function Sender() {
   const [isRunning, setIsRunning] = useState(false);

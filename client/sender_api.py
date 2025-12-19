@@ -1,9 +1,12 @@
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import threading
 
-from client.client_sender import start_sender, stop_sender
+from .client_sender import start_sender, stop_sender
 
 # -------------------------------------------------
 # FastAPI App
@@ -96,7 +99,7 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(
-        "server.api:app",
+        "sender_api:app",
         host="127.0.0.1",
         port=8001,
         log_level="info"
