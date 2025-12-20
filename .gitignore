@@ -10,3 +10,9 @@ models/Autoencoder_model.h5
 models/rag_final/
 gui-react/node_modules
 
+__pycache__/
+*.pyc
+*.csv
+*.ipynb
+temp*.txt
+node_modules/
