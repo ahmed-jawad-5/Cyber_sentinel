@@ -14,7 +14,13 @@ from server.model_runner import ModelRunner
 # ----------------------------
 HOST = "0.0.0.0"
 PORT = 9000
-CSV_PATH = "results.csv"
+
+# Store CSVs under backend/output/results.csv
+_BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_OUTPUT_DIR = os.path.join(_BACKEND_ROOT, "output")
+os.makedirs(_OUTPUT_DIR, exist_ok=True)
+CSV_PATH = os.path.join(_OUTPUT_DIR, "results.csv")
+
 EXPECTED_FEATURE_COUNT = 18
 
 csv_lock = threading.Lock()
