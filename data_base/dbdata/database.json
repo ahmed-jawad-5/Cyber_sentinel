@@ -1,0 +1,27 @@
+{
+  "tables": {
+    "mytable": {
+      "schema": {
+        "srcip": "string",
+        "sport": "int",
+        "dstip": "string",
+        "dsport": "int",
+        "proto": "int",
+        "dur": "int",
+        "sbytes": "int",
+        "dbytes": "int",
+        "Spkts": "int",
+        "Dpkts": "int",
+        "smeansz": "int",
+        "dmeansz": "int",
+        "Sintpkt": "int",
+        "Dintpkt": "int",
+        "entropy": "int",
+        "ct_flw_count": "int",
+        "id": "int"
+      },
+      "primary_key": "id",
+      "sorted_indexes": []
+    }
+  }
+}
