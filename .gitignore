@@ -16,3 +16,4 @@ __pycache__/
 *.ipynb
 temp*.txt
 node_modules/
+2venv/
