@@ -1,0 +1,13 @@
+FROM node:20-slim
+WORKDIR /app/frontend
+
+# 1. Reach INTO the frontend folder from the root
+COPY frontend/gui-react/package*.json ./
+
+# 2. This will now find the file and install Vite
+RUN npm install
+
+# 3. Copy the rest of the frontend source
+COPY frontend/gui-react/ ./
+
+CMD ["npm", "run", "dev"]

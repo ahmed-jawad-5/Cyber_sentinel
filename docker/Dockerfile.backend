@@ -1,0 +1,39 @@
+FROM python:3.11-slim
+
+# 1. Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    default-libmysqlclient-dev \
+    libssl-dev \
+    libffi-dev \
+    pkg-config \
+    tcpdump \
+    iproute2 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# 2. Upgrade pip and install the specific Keras fix BEFORE other requirements
+# This ensures transformers doesn't crash on import
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir tf-keras
+
+# 3. Copy only requirements
+# Note: Using backend/ if that is where the file lives relative to your build context
+COPY backend/requirements-dev.txt ./requirements-dev.txt
+
+# 4. Install dependencies
+# Increased timeout is good for large ML packages like torch/tensorflow
+RUN pip install --default-timeout=1000 --no-cache-dir -r requirements-dev.txt
+
+# 5. Copy backend source
+COPY backend/ ./backend/
+
+# 6. Set environment and ports
+ENV PYTHONPATH=/app/backend
+# Set this to prevent Keras from trying to use Keras 3 behavior
+ENV TF_USE_LEGACY_KERAS=1
+
+EXPOSE 8000 8001
+
+CMD ["uvicorn", "backend.api:app", "--host", "0.0.0.0", "--port", "8000"]

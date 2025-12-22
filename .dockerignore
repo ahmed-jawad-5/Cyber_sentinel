@@ -1,0 +1,22 @@
+# Git metadata (The biggest culprit for 13GB transfers)
+.git
+.gitignore
+
+# Frontend
+**/node_modules/
+**/dist/
+**/build/
+.npm/
+
+# Backend
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+venv/
+.venv/
+backend/models/  # Keep this if models are huge and downloaded separately
+
+# Data/Temp
+output/
+*.csv
+temp*

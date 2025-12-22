@@ -1,0 +1,18 @@
+.venv/
+backend/models/SVM_model.pkl
+backend/models/SVM_model copy.pkl
+backend/models/RandomForest_model.pkl
+backend/models/OneClassSVM_model.pkl
+backend/models/LogisticRegression_model.pkl
+backend/models/IsolationForest_model.pkl
+backend/models/DNN_model.h5
+backend/models/Autoencoder_model.h5
+backend/models/rag_final/
+frontend/gui-react/node_modules
+
+__pycache__/
+*.pyc
+*.csv
+*.ipynb
+temp*.txt
+node_modules/

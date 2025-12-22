@@ -1,0 +1,14 @@
+fastapi==0.124.4
+uvicorn==0.38.0
+scapy==2.6.1
+numpy==2.2.4
+pandas==2.2.3
+scikit-learn==1.7.2
+xgboost==3.1.2
+pydantic==2.12.5
+sqlalchemy==2.0.40
+tensorflow==2.20.0      # only if you need model inference
+torch==2.9.1           # only if you need PyTorch model inference
+transformers==4.57.3   # only if you need LLM
+faiss-cpu==1.13.1      # only if you need vector search
+sentence-transformers
