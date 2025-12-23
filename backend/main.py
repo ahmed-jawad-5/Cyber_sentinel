@@ -127,9 +127,9 @@ def build_prompt_with_context(query: str, retrieved_docs: List[Dict], detailed: 
     INPUT:
     {query}
     """
-        else:
-            # Original concise prompt
-            prompt = f"""
+    else:
+        # Original concise prompt
+        prompt = f"""
     You are a network flow classifier. Use the examples in context to decide if the following flow is "normal" or "anomaly".
 
     Context examples:
@@ -140,7 +140,7 @@ def build_prompt_with_context(query: str, retrieved_docs: List[Dict], detailed: 
     INPUT:
     {query}
     """
-        return prompt
+    return prompt
 
 
 def index_exists(index_dir: str) -> bool:
