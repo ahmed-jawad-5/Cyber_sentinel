@@ -1,14 +1,299 @@
-basicclly the prroblem is mese value for the normal and anomooly is actually to  large 
-##### 
-scaling is standard (
-    != min max scaling (
-
-    )
-)
-
-# ######### +=====_======== prediction 
-# mse 
- 
-threading ??
 
 
+##########################receiver ##################################################
+
+Perfect — now I can see your full sender implementation. Let me explain exactly what’s happening and where the problem is for your setup:
+
+🔹 Observations about your sender
+
+Outbound connection is TCP:
+
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+    s.connect((host, port))
+    s.sendall(payload.encode("utf-8"))
+
+
+So your receiver must be listening on TCP, not UDP.
+
+If your previous testing used UDP, packets will never arrive.
+
+Threads:
+
+sender_worker → dequeues flows and sends to receiver
+
+sniffer_thread → runs flow_tracker.start_sniff() (blocking) and patches _expire_flow
+
+✅ Threads are correct, but start_flow_tracker() blocks, so the sender will only stop when _expire_flow triggers flows.
+
+Safe shutdown:
+
+signal_handler sets stop_event → loops exit → sys.exit(0)
+
+That’s fine. The SystemExit + asyncio.CancelledError you saw earlier is normal.
+
+Runtime config:
+
+runtime_config["host"] = host
+runtime_config["port"] = port
+runtime_config["delay"] = delay
+
+
+So you must call start_sender(host, port, delay) with the correct host/IP
+
+🔹 Likely causes why packets are not reaching receiver
+
+Receiver not running or wrong port/protocol
+
+Your sender is TCP
+
+Is your receiver bound to TCP on the same port? If your receiver is listening on UDP (port 9000), it will never receive TCP packets.
+
+Wrong host IP
+
+host = runtime_config["host"]
+
+
+If you’re testing locally, host must be the receiver’s IP, or "127.0.0.1" if receiver is on same machine.
+
+If using multiple machines, it must be the receiver’s LAN IP.
+
+Packet generation is too slow or _expire_flow never triggers
+
+start_flow_tracker waits for flows to expire
+
+If flows never expire, nothing is enqueued → sender_worker has nothing to send.
+
+🔹 How to test connectivity quickly
+
+Since you just want to test that sender → receiver works:
+
+Simplify sender to send a test packet
+
+import socket
+import json
+
+host = "127.0.0.1"  # receiver IP
+port = 9000
+
+data = {"test": 123}
+payload = json.dumps(data) + "\n"
+
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+    s.connect((host, port))
+    s.sendall(payload.encode())
+    print("Packet sent!")
+
+
+Run this while your receiver is running.
+
+If it prints "Packet sent!" and receiver sees it → network is OK.
+
+Once this works, start your full sender with flow tracker.
+
+🔹 Key Fixes for your current setup
+
+Make sure receiver listens on TCP (since sender uses TCP)
+
+Set correct host IP when calling start_sender(host, port, delay)
+
+Example:
+
+from client.client_sender import start_sender
+
+start_sender("127.0.0.1", 9000, 0.5)  # test locally
+
+
+Check that _expire_flow triggers → this is when flows are put into outbound_queue.
+
+💡 TL;DR:
+
+The sender code is fine; the main problem is networking / receiver config:
+
+Make sure protocol matches (TCP vs UDP)
+
+Make sure receiver IP/port matches
+
+Ensure flow tracker actually produces flows
+
+If you want, I can write a minimal working example using your current sender + a simple receiver that prints flows so you can verify packets are actually sent and received without running the full ML/RAG stack.
+
+Do you want me to do that?
+
+but why are th etwo laptops not connected to each other why is that ]
+
+Ah — now I understand clearly: the core problem isn’t Python code anymore, it’s that your two laptops cannot “see” each other over the network. This is why your sender can’t reach the receiver, even if everything else is correct. Let’s carefully go through why this happens and how to fix it.
+
+🔹 Common reasons two laptops cannot connect
+1️⃣ Wrong IP address or network
+
+From your ip addr show, your laptop’s active interface is:
+
+wlan0: 10.96.166.162/24
+
+
+If the other laptop is not on the same subnet (e.g., 10.96.166.x), they won’t be able to reach each other.
+
+Make sure both laptops are connected to the same Wi-Fi or the same LAN.
+
+2️⃣ Firewall / security software
+
+Windows / Linux firewalls often block incoming connections.
+
+On Linux, check with:
+
+sudo ufw status
+
+
+If active, allow your port:
+
+sudo ufw allow 9000/tcp
+sudo ufw allow 9000/udp  # if needed
+
+
+On Windows, make sure inbound rules allow Python / port 9000.
+
+3️⃣ Receiver binding only to localhost
+
+If your receiver binds to 127.0.0.1:
+
+UDP_IP = "127.0.0.1"  # ❌
+
+
+Only the local machine can connect.
+
+Correct binding:
+
+UDP_IP = "0.0.0.0"  # ✅ listens on all interfaces
+
+4️⃣ Ports not open / blocked by router
+
+Some Wi-Fi networks block direct communication between devices (AP isolation).
+
+Test basic connectivity:
+
+ping 10.96.166.xxx  # the receiver laptop IP
+
+
+If ping fails → the laptops cannot see each other on the network.
+
+If ping works but Python fails → likely firewall / port issue.
+
+5️⃣ Wrong protocol
+
+Make sure your sender and receiver use the same protocol:
+
+TCP → TCP
+
+UDP → UDP
+
+🔹 How to test and fix connectivity
+
+Find the receiver’s LAN IP:
+
+ip addr show wlan0
+# suppose it is 10.96.166.162
+
+
+On the sender laptop, test ping:
+
+ping 10.96.166.162
+
+
+✅ Ping must succeed. If not, check firewall / Wi-Fi AP settings.
+
+Run a simple TCP listener on the receiver laptop:
+
+nc -l 9000
+
+
+From sender laptop:
+
+echo "hello" | nc 10.96.166.162 9000
+
+
+You should see "hello" appear on receiver.
+
+If this works → your Python sender/receiver will work.
+
+🔹 TL;DR — why the laptops aren’t “connected”
+
+Not the Python code — the laptops simply cannot reach each other because of one of:
+
+Different subnets / network isolation
+
+Firewall blocking incoming connections
+
+Receiver bound only to localhost
+
+Wi-Fi router blocking peer-to-peer traffic
+
+Once you fix the network/firewall/binding, your sender and receiver will communicate correctly.
+
+If you want, I can give you a step-by-step guide to make two laptops on the same Wi-Fi communicate over TCP/UDP so your sender/receiver test works immediately.
+
+Do you want me to do that?
+
+
+~ ❯ sudo ufw status
+[sudo] password for muhammadtaaha:
+Status: inactive
+
+~ ❯
+
+Perfect — that actually tells us a lot. Since ufw is inactive, your Linux firewall isn’t blocking anything. That rules out firewall issues on your laptop.
+
+So the reason the two laptops cannot connect must be network-level, not software-level. Likely causes now:
+
+1️⃣ They are on different subnets
+
+From your previous ip addr show:
+
+wlan0: 10.96.166.162/24
+
+
+Check the other laptop’s IP (run ip addr show or ipconfig on Windows).
+
+Both laptops must be in the same subnet, e.g., 10.96.166.x/24.
+
+If they are on different subnets, they won’t see each other unless there’s a router route.
+
+2️⃣ Wi-Fi AP isolation
+
+Many Wi-Fi routers (especially in offices or public Wi-Fi) isolate clients: devices cannot communicate with each other even if they are on the same Wi-Fi.
+
+Check your router settings for “AP isolation” or “client isolation” — it should be disabled.
+
+3️⃣ Test connectivity with ping
+
+From your laptop (sender), run:
+
+ping <receiver-laptop-IP>
+
+
+If ping fails → laptops cannot reach each other on the network → Python won’t work either.
+
+If ping succeeds → TCP/UDP should work.
+
+4️⃣ Quick test using netcat
+
+On receiver laptop:
+
+nc -l 9000
+
+
+On sender laptop:
+
+echo "hello" | nc <receiver-laptop-IP> 9000
+
+
+If "hello" appears → network is working, your Python sender/receiver will also work.
+
+If not → network connection is blocked.
+
+✅ Next step
+
+Before touching Python code, verify that the laptops can see each other with ping or netcat. Once that works, your sender/receiver will start working immediately.
+
+If you want, I can write a minimal Python sender + receiver test that only checks connectivity and prints received packets — so you can be 100% sure the network is working before running the full ML/RAG stack.
+
+Do you want me to do that?
