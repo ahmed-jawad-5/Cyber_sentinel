@@ -129,6 +129,10 @@ Suggested label: backdoor
 
 Ensure server binds to 0.0.0.0 for LAN access.
 
+**Documentation updated by Fatima Shafiq, Muhammad Taaha, Ahmad Jawad**
+
+
+
 Open TCP port (default 9000) in firewall for connectivity.
 
 RAG is computationally expensive; only triggered for first few anomalies to maintain performance.
