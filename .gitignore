@@ -9,3 +9,5 @@ models/IsolationForest_model.pkl
 models/DNN_model.h5
 models/Autoencoder_model.h5
 models/rag_final/
+__pycache__/
+*.py[cod]
