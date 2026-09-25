@@ -1,4 +1,5 @@
 .venv/
+__pychache__/
 models/SVM_model.pkl
 models/SVM_model copy.pkl
 models/RandomForest_model.pkl
